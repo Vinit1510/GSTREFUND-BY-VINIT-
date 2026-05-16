@@ -79,7 +79,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_guide, tab1, tab2, tab3, tab_s1a = st.tabs(["📖 User Guide", "📁 Data Upload", "⚙️ Refund Calculator", "📄 Official Statement 1", "Statement 1A Excel"])
+tab_guide, tab1, tab2, tab3 = st.tabs(["📖 User Guide", "📁 Data Upload", "⚙️ Refund Calculator", "📄 Official Statement 1"])
 
 with tab_guide:
     try:
@@ -225,7 +225,7 @@ with tab2:
                     )
                 },
                 hide_index=True,
-                width="stretch"
+                use_container_width=True
             )
             
             unique_invoices['Type of ITC'] = edited_invoices['Type of ITC']
@@ -265,7 +265,7 @@ with tab2:
                     edited_notes = st.data_editor(
                         unique_notes.drop(columns=['ID']),
                         column_config={"Type of ITC": st.column_config.SelectboxColumn("Type of ITC", options=["Input Goods", "Input Services", "Capital Goods"], required=True)},
-                        hide_index=True, width="stretch"
+                        hide_index=True, use_container_width=True
                     )
                     
                     unique_notes['Type of ITC'] = edited_notes['Type of ITC']
@@ -343,7 +343,7 @@ with tab2:
     if not sales_df.empty:
         rate_summary = sales_df.groupby('Rate').agg({'Taxable Value': 'sum', 'Tax': 'sum'}).reset_index()
         st.subheader("Rate-Wise Outward Supplies")
-        st.dataframe(rate_summary.style.format({'Taxable Value': '{:,.2f}', 'Tax': '{:,.2f}'}), width="stretch")
+        st.dataframe(rate_summary.style.format({'Taxable Value': '{:,.2f}', 'Tax': '{:,.2f}'}), use_container_width=True)
         
         st.subheader("Inverted Rated Supply (IRS) Identification")
         available_rates = sorted(rate_summary['Rate'].unique().tolist())
@@ -553,7 +553,7 @@ with tab3:
         
         # 1. HTML as XLS (Excel will open this flawlessly matching the UI)
         html_for_excel = f"<html xmlns:x=\"urn:schemas-microsoft-com:office:excel\"><head><meta charset=\"UTF-8\"><style>body {{ font-family: Arial, sans-serif; }}</style></head><body>{html_report}</body></html>"
-        colA.download_button("📊 Download as Excel (Formatted)", data=html_for_excel.encode('utf-8'), file_name=f"{file_name_prefix}.xls", mime="application/vnd.ms-excel", width="stretch")
+        colA.download_button("📊 Download as Excel (Formatted)", data=html_for_excel.encode('utf-8'), file_name=f"{file_name_prefix}.xls", mime="application/vnd.ms-excel", use_container_width=True)
 
         # 2. Real PDF Generation
         pdf_buffer = io.BytesIO()
@@ -581,270 +581,11 @@ with tab3:
         pisa.CreatePDF(io.StringIO(pdf_html), dest=pdf_buffer)
         pdf_data = pdf_buffer.getvalue()
         
-        colB.download_button("🖨️ Download Actual PDF File", data=pdf_data, file_name=f"{file_name_prefix}.pdf", mime="application/pdf", width="stretch")
+        colB.download_button("🖨️ Download Actual PDF File", data=pdf_data, file_name=f"{file_name_prefix}.pdf", mime="application/pdf", use_container_width=True)
 
         # Render the Report Visual
         st.markdown("<br>", unsafe_allow_html=True)
         import streamlit.components.v1 as components
         components.html(html_report, height=1000, scrolling=True)
-# --- NEW FEATURE: STATEMENT 1A EXCEL FILLER (SURGICAL XLSM ENGINE) ---
-
-def extract_invoice_rows_for_filler(gstr1_data_list):
-    rows = []
-    for data in gstr1_data_list:
-        try:
-            if 'b2b' in data:
-                for company in data['b2b']:
-                    for inv in company.get('inv', []):
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
-                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in inv.get('itms', []))
-                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in inv.get('itms', []))
-                        rows.append({'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'type': 'B2B'})
-            if 'b2cl' in data:
-                for state in data['b2cl']:
-                    for inv in state.get('inv', []):
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
-                        rows.append({'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': 0.0, 'samt': 0.0, 'type': 'B2C-Large'})
-            if 'cdnr' in data:
-                for company in data['cdnr']:
-                    for nt in company.get('nt', []):
-                        nt_type = nt.get('ntty', 'C')
-                        mult = -1 if nt_type == 'C' else 1
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in nt.get('itms', [])) * mult
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in nt.get('itms', [])) * mult
-                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', [])) * mult
-                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', [])) * mult
-                        rows.append({'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'type': 'B2B'})
-        except: continue
-    return rows
-
-# --- NEW FEATURE: STATEMENT 1A EXCEL FILLER (HYBRID ULTRA ENGINE) ---
-
-def extract_invoice_rows_for_filler(gstr1_data_list):
-    """Deep extraction logic from GSTR-1 JSON for Statement 1A."""
-    rows = []
-    for data in gstr1_data_list:
-        try:
-            if 'b2b' in data:
-                for company in data['b2b']:
-                    for inv in company.get('inv', []):
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
-                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in inv.get('itms', []))
-                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in inv.get('itms', []))
-                        rows.append({'type': 'B2B', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'doc_type': 'Invoice/Bill of Entry'})
-            if 'b2cl' in data:
-                for state in data['b2cl']:
-                    for inv in state.get('inv', []):
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
-                        rows.append({'type': 'B2C-Large', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': 0.0, 'samt': 0.0, 'doc_type': 'Invoice/Bill of Entry'})
-            if 'cdnr' in data:
-                for company in data['cdnr']:
-                    for nt in company.get('nt', []):
-                        nt_type = nt.get('ntty', 'C')
-                        # USER REQUEST: Use these specific strings for Outward
-                        doc_str = 'Credit Note' if nt_type == 'C' else 'Debit Note'
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in nt.get('itms', []))
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in nt.get('itms', []))
-                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', []))
-                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', []))
-                        rows.append({'type': 'B2B', 'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'doc_type': doc_str})
-            if 'b2cs' in data:
-                b2cs_txval = sum(rec.get('txval', 0) for rec in data['b2cs'])
-                b2cs_iamt = sum(rec.get('iamt', 0) for rec in data['b2cs'])
-                b2cs_camt = sum(rec.get('camt', 0) for rec in data['b2cs'])
-                b2cs_samt = sum(rec.get('samt', 0) for rec in data['b2cs'])
-                if b2cs_txval != 0:
-                    rows.append({
-                        'type': 'B2C-Small', 'no': 'B2C-Small', 'dt': '', 
-                        'txval': b2cs_txval, 'iamt': b2cs_iamt, 
-                        'camt': b2cs_camt, 'samt': b2cs_samt,
-                        'doc_type': 'Invoice/Bill of Entry'
-                    })
-        except: continue
-    return rows
-
-def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_period, to_period):
-    import openpyxl, zipfile, io, os, re
-    TEMPLATE = "GST_REFUND_S01A.xlsm"
-    if not os.path.exists(TEMPLATE): return None, "Template not found."
-
-    outward_rows = extract_invoice_rows_for_filler(gstr1_json_list)
-    # 1. Combined Inward Identification (B2B + CDNR)
-    inward_rows = []
-    
-    # Process B2B
-    if b2b_df is not None:
-        temp_b2b = b2b_df.copy()
-        itc_col = next((col for col in temp_b2b.columns if 'Type of ITC' in str(col)), None)
-        if itc_col:
-            b2b_filtered = temp_b2b[temp_b2b[itc_col] == 'Input Goods']
-            inward_rows.extend(b2b_filtered.to_dict('records'))
-        else:
-            inward_rows.extend(temp_b2b.to_dict('records'))
-
-    # Process CDNR (Credit/Debit Notes)
-    if cdnr_df is not None and not cdnr_df.empty:
-        temp_cdn = cdnr_df.copy()
-        itc_col_cdn = next((col for col in temp_cdn.columns if 'Type of ITC' in str(col)), None)
-        if itc_col_cdn:
-            cdn_filtered = temp_cdn[temp_cdn[itc_col_cdn] == 'Input Goods']
-            inward_rows.extend(cdn_filtered.to_dict('records'))
-        else:
-            inward_rows.extend(temp_cdn.to_dict('records'))
-
-    try:
-        # 1. Fill data using Openpyxl (Handles cell creation and types perfectly)
-        wb = openpyxl.load_workbook(TEMPLATE, keep_vba=True)
-        if "RFD_STMT01A" not in wb.sheetnames:
-            return None, "Sheet 'RFD_STMT01A' not found."
-        ws = wb["RFD_STMT01A"]
-        
-        ws["C4"] = str(gstin)
-        ws["C5"] = str(from_period)
-        ws["C6"] = str(to_period)
-        
-        max_len = max(len(inward_rows), len(outward_rows))
-        for i in range(max_len):
-            r = 11 + i
-            if r > 10000: break
-            ws.cell(row=r, column=1, value=i+1)
-            
-            if i < len(inward_rows):
-                row = inward_rows[i]
-                def gv(keys, default=0):
-                    for k in keys:
-                        m = next((col for col in row if k.lower() in str(col).lower()), None)
-                        if m: return row[m]
-                    return default
-                # Accurate Document Type Detection
-                raw_dt = str(gv(['Document Type', 'Doc Type', 'Note Type'], ""))
-                if 'credit' in raw_dt.lower(): dt = "Credit Note"
-                elif 'debit' in raw_dt.lower(): dt = "Debit Note"
-                else: dt = "Invoice/Bill of Entry"
-                
-                ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
-                ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
-                ws.cell(row=r, column=4, value=dt)
-                ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Note number', 'Inv No', 'Number'], "")))
-                ws.cell(row=r, column=6, value=str(gv(['date'], "")))
-                def w(c, v):
-                    try: 
-                        val = round(float(v), 2)
-                        if val != 0: ws.cell(row=r, column=c, value=val)
-                        else: ws.cell(row=r, column=c, value=None)
-                    except: ws.cell(row=r, column=c, value=None)
-                w(8, gv(['Taxable'], 0)); w(9, gv(['Integrated', 'IGST'], 0))
-                w(10, gv(['Central', 'CGST'], 0)); w(11, gv(['State', 'SGST'], 0))
-
-            if i < len(outward_rows):
-                orow = outward_rows[i]
-                ws.cell(row=r, column=12, value=orow['type'])
-                ws.cell(row=r, column=13, value=orow.get('doc_type', 'Invoice/Bill of Entry'))
-                ws.cell(row=r, column=14, value=str(orow['no']))
-                ws.cell(row=r, column=15, value=str(orow['dt']))
-                def wo(c, v):
-                    val = round(float(v), 2)
-                    if val != 0: ws.cell(row=r, column=c, value=val)
-                    else: ws.cell(row=r, column=c, value=None)
-                wo(16, orow['txval']); wo(17, orow['iamt'])
-                wo(18, orow['camt']); wo(19, orow['samt'])
-
-        tmp_buf = io.BytesIO()
-        wb.save(tmp_buf)
-        filled_bytes = tmp_buf.getvalue()
-
-        # 2. MASTER SURGEON: Re-stitch drawing links into the filled sheet XML
-        final_buf = io.BytesIO()
-        with zipfile.ZipFile(TEMPLATE, 'r') as zorig:
-            with zipfile.ZipFile(io.BytesIO(filled_bytes), 'r') as zfill:
-                with zipfile.ZipFile(final_buf, 'w') as zout:
-                    # Get original drawing and dataValidation tags from template sheet2.xml
-                    orig_sheet = zorig.read("xl/worksheets/sheet2.xml").decode('utf-8')
-                    draw_tags = re.findall(r'<(?:legacy)?drawing r:id="rId[^>]*/>', orig_sheet)
-                    dv_tags = re.findall(r'<dataValidations.*?</dataValidations>', orig_sheet, flags=re.DOTALL)
-                    
-                    for item in zfill.infolist():
-                        content = zfill.read(item.filename)
-                        
-                        # 1. Surgical XML Stitching for sheet2.xml
-                        if "xl/worksheets/sheet2.xml" in item.filename:
-                            xml = content.decode('utf-8')
-                            
-                            # FIX: Declare namespaces explicitly
-                            if 'xmlns:r=' not in xml:
-                                xml = xml.replace('<worksheet', '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"', 1)
-                            
-                            # Wipe existing broken tags
-                            xml = re.sub(r'<dataValidations.*?</dataValidations>', '', xml, flags=re.DOTALL)
-                            xml = re.sub(r'<(?:legacy)?drawing r:id="rId[^>]*/>', '', xml)
-                            
-                            # Re-inject original Dropdowns
-                            if dv_tags:
-                                xml = xml.replace('</worksheet>', dv_tags[0] + '</worksheet>')
-
-                            # Re-inject original Buttons (Drawing links)
-                            if draw_tags:
-                                xml = xml.replace('</worksheet>', "".join(draw_tags) + '</worksheet>')
-                            
-                            content = xml.encode('utf-8')
-                        
-                        # 2. FORCE TRANSPLANT original Relationship and Drawing files
-                        if "xl/worksheets/_rels/sheet2.xml.rels" in item.filename:
-                            # Use original relationship mapping to ensure rIds for buttons match
-                            content = zorig.read("xl/worksheets/_rels/sheet2.xml.rels")
-                        
-                        zout.writestr(item, content)
-                    
-                    # Ensure all support files (drawings, VML, control properties) are present
-                    for item in zorig.infolist():
-                        if any(x in item.filename for x in ["xl/drawings/", "xl/ctrlProps/", "xl/vmlDrawing"]):
-                            if item.filename not in zout.namelist():
-                                zout.writestr(item, zorig.read(item.filename))
-        return final_buf.getvalue(), None
-    except Exception as e: return None, str(e)
-
-with tab_s1a:
-    st.header("📥 Statement 1A Automation Utility")
-    st.write("Automatically populate the official **Statement 1A XLSM Offline Tool** using your uploaded data.")
-    
-    with st.expander("📝 Business Details for Statement 1A", expanded=True):
-        c1, c2 = st.columns(2)
-        gstin_input = c1.text_input("GSTIN", value=user_gstin if user_gstin != "Unknown" else "", placeholder="Enter GSTIN", key="s1a_gstin_in")
-        legal_name_input = c2.text_input("Legal Name", value=user_legal_name if user_legal_name != "Unknown" else "", placeholder="Enter Legal Name", key="s1a_legal_name_in")
-        
-        c3, c4 = st.columns(2)
-        from_period_input = c3.text_input("From Return Period (mmyyyy)", placeholder="092025", key="s1a_from_p")
-        to_period_input = c4.text_input("To Return Period (mmyyyy)", placeholder="092025", key="s1a_to_p")
-
-    if st.button("🚀 Generate & Fill Statement 1A Excel", width="stretch", type="primary", key="s1a_gen_btn"):
-        if not gstr1_path:
-            st.error("Please upload GSTR-1 JSON files first.")
-        else:
-            with st.spinner("Populating template via Final Surgical Engine..."):
-                gstr1_data_list = []
-                for f in gstr1_path:
-                    f.seek(0)
-                    gstr1_data_list.append(json.load(f))
-                
-                # Fetch categorized data if available for filtering
-                final_b2b = st.session_state.get('categorized_df', b2b_df)
-                
-                excel_data, err = generate_s1a_master_surgeon(final_b2b, cdnr_df, gstr1_data_list, gstin_input, from_period_input, to_period_input)
-                
-                if err:
-                    st.error(f"Engine Error: {err}")
-                else:
-                    st.success("✅ Excel Statement 1A Generated Successfully!")
-                    st.download_button(
-                        label="💾 Download Filled Statement 1A (.xlsm)",
-                        data=excel_data,
-                        file_name=f"GST_REFUND_S1A_{gstin_input}.xlsm",
-                        mime="application/vnd.ms-excel.sheet.macroEnabled.12",
-                        width="stretch",
-                        key="s1a_download_btn"
-                    )
-                    st.info("💡 Note: This file contains all buttons and macros. Click 'Enable Content' in Microsoft Excel to use them.")
+    else:
+        st.warning("Please complete Phase 1 and Phase 2 in the Refund Calculator tab first to generate the statement.")
