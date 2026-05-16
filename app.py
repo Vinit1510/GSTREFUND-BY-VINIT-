@@ -667,38 +667,34 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
         except: continue
     return rows
 
-def generate_s1a_final_surgical(b2b_df, gstr1_json_list, gstin, from_period, to_period):
-    import zipfile, io, re, os
+def generate_s1a_master_surgeon(b2b_df, gstr1_json_list, gstin, from_period, to_period):
+    import openpyxl, zipfile, io, os, re
     TEMPLATE = "GST_REFUND_S01A.xlsm"
     if not os.path.exists(TEMPLATE): return None, "Template not found."
 
     outward_rows = extract_invoice_rows_for_filler(gstr1_json_list)
-    
-    # USER REQUEST: Only Input Goods for Inward
     if b2b_df is not None and 'Categorization' in b2b_df.columns:
         inward_rows = b2b_df[b2b_df['Categorization'] == 'Input Goods'].to_dict('records')
     else:
         inward_rows = b2b_df.to_dict('records') if b2b_df is not None else []
 
     try:
-        cell_updates = {}
-        def add_upd(r, c_let, val, is_s=False):
-            if val is None or val == 0 or val == "": return
-            v_esc = str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            if is_s: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
-            else:
-                try: cell_updates[f"{c_let}{r}"] = f'><v>{round(float(val), 2)}</v>'
-                except: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
-
-        add_upd(4, 'C', gstin, True)
-        add_upd(5, 'C', from_period, True)
-        add_upd(6, 'C', to_period, True)
-
+        # 1. Fill data using Openpyxl (Handles cell creation and types perfectly)
+        wb = openpyxl.load_workbook(TEMPLATE, keep_vba=True)
+        if "RFD_STMT01A" not in wb.sheetnames:
+            return None, "Sheet 'RFD_STMT01A' not found."
+        ws = wb["RFD_STMT01A"]
+        
+        ws["C4"] = str(gstin)
+        ws["C5"] = str(from_period)
+        ws["C6"] = str(to_period)
+        
         max_len = max(len(inward_rows), len(outward_rows))
         for i in range(max_len):
             r = 11 + i
             if r > 10000: break
-            add_upd(r, 'A', i+1)
+            ws.cell(row=r, column=1, value=i+1)
+            
             if i < len(inward_rows):
                 row = inward_rows[i]
                 def gv(keys, default=0):
@@ -706,53 +702,66 @@ def generate_s1a_final_surgical(b2b_df, gstr1_json_list, gstin, from_period, to_
                         m = next((col for col in row if k.lower() in str(col).lower()), None)
                         if m: return row[m]
                     return default
-                
                 dt = str(gv(['Document Type', 'Doc Type'], "Invoice/Bill of Entry"))
                 if 'credit' in dt.lower(): dt = "Credit Note"
                 elif 'debit' in dt.lower(): dt = "Debit Note"
                 else: dt = "Invoice/Bill of Entry"
-
-                add_upd(r, 'B', "Inward Supply from Registered Person", True)
-                add_upd(r, 'C', gv(['GSTIN', 'GST No'], ""), True)
-                add_upd(r, 'D', dt, True)
-                add_upd(r, 'E', gv(['Invoice number', 'Inv No', 'Number'], ""), True)
-                add_upd(r, 'F', gv(['date'], ""), True)
-                add_upd(r, 'H', gv(['Taxable'], 0))
-                add_upd(r, 'I', gv(['Integrated', 'IGST'], 0))
-                add_upd(r, 'J', gv(['Central', 'CGST'], 0))
-                add_upd(r, 'K', gv(['State', 'SGST'], 0))
+                ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
+                ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
+                ws.cell(row=r, column=4, value=dt)
+                ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
+                ws.cell(row=r, column=6, value=str(gv(['date'], "")))
+                def w(c, v):
+                    try: 
+                        val = round(float(v), 2)
+                        if val != 0: ws.cell(row=r, column=c, value=val)
+                        else: ws.cell(row=r, column=c, value=None)
+                    except: ws.cell(row=r, column=c, value=None)
+                w(8, gv(['Taxable'], 0)); w(9, gv(['Integrated', 'IGST'], 0))
+                w(10, gv(['Central', 'CGST'], 0)); w(11, gv(['State', 'SGST'], 0))
 
             if i < len(outward_rows):
                 orow = outward_rows[i]
-                add_upd(r, 'L', orow['type'], True)
-                add_upd(r, 'M', orow.get('doc_type', 'Invoice/Bill of Entry'), True)
-                add_upd(r, 'N', orow['no'], True)
-                add_upd(r, 'O', orow['dt'], True)
-                add_upd(r, 'P', orow['txval'])
-                add_upd(r, 'Q', orow['iamt'])
-                add_upd(r, 'R', orow['camt'])
-                add_upd(r, 'S', orow['samt'])
+                ws.cell(row=r, column=12, value=orow['type'])
+                ws.cell(row=r, column=13, value=orow.get('doc_type', 'Invoice/Bill of Entry'))
+                ws.cell(row=r, column=14, value=str(orow['no']))
+                ws.cell(row=r, column=15, value=str(orow['dt']))
+                def wo(c, v):
+                    val = round(float(v), 2)
+                    if val != 0: ws.cell(row=r, column=c, value=val)
+                    else: ws.cell(row=r, column=c, value=None)
+                wo(16, orow['txval']); wo(17, orow['iamt'])
+                wo(18, orow['camt']); wo(19, orow['samt'])
 
-        output_buffer = io.BytesIO()
-        with zipfile.ZipFile(TEMPLATE, 'r') as zin:
-            with zipfile.ZipFile(output_buffer, 'w') as zout:
-                for item in zin.infolist():
-                    content = zin.read(item.filename)
-                    # Surgical Replace ONLY for the data sheet
-                    if "xl/worksheets/sheet2.xml" in item.filename:
-                        xml = content.decode('utf-8')
-                        def sub_func(m):
-                            tag_prefix = m.group(1)
-                            ref = m.group(2)
-                            if ref in cell_updates:
-                                return f'<{tag_prefix}c r="{ref}"{cell_updates[ref]}</{tag_prefix}c>'
-                            return m.group(0)
-                        
-                        # Matches <c r="A1"...> or <x:c r="A1"...>
-                        xml = re.sub(r'<([^:>]*?)c r="([A-Z0-9]+)"[^>]*>.*?</\1c>', sub_func, xml, flags=re.DOTALL)
-                        content = xml.encode('utf-8')
-                    zout.writestr(item, content)
-        return output_buffer.getvalue(), None
+        tmp_buf = io.BytesIO()
+        wb.save(tmp_buf)
+        filled_bytes = tmp_buf.getvalue()
+
+        # 2. MASTER SURGEON: Re-stitch drawing links into the filled sheet XML
+        final_buf = io.BytesIO()
+        with zipfile.ZipFile(TEMPLATE, 'r') as zorig:
+            with zipfile.ZipFile(io.BytesIO(filled_bytes), 'r') as zfill:
+                with zipfile.ZipFile(final_buf, 'w') as zout:
+                    # Get original drawing tags from template sheet2.xml
+                    orig_sheet = zorig.read("xl/worksheets/sheet2.xml").decode('utf-8')
+                    draw_tags = re.findall(r'<(?:legacy)?drawing r:id="rId[^>]*/>', orig_sheet)
+                    
+                    for item in zfill.infolist():
+                        content = zfill.read(item.filename)
+                        if "xl/worksheets/sheet2.xml" in item.filename:
+                            xml = content.decode('utf-8')
+                            # Insert original drawing tags before </worksheet>
+                            if draw_tags:
+                                xml = xml.replace('</worksheet>', "".join(draw_tags) + '</worksheet>')
+                            content = xml.encode('utf-8')
+                        zout.writestr(item, content)
+                    
+                    # Force transplant original rels and drawings
+                    for item in zorig.infolist():
+                        if "xl/drawings/" in item.filename or "xl/worksheets/_rels/sheet2.xml.rels" in item.filename:
+                            if item.filename not in zout.namelist():
+                                zout.writestr(item, zorig.read(item.filename))
+        return final_buf.getvalue(), None
     except Exception as e: return None, str(e)
 
 with tab_s1a:
@@ -781,7 +790,7 @@ with tab_s1a:
                 # Fetch categorized data if available for filtering
                 final_b2b = st.session_state.get('categorized_df', b2b_df)
                 
-                excel_data, err = generate_s1a_final_surgical(final_b2b, gstr1_data_list, gstin_input, from_period_input, to_period_input)
+                excel_data, err = generate_s1a_master_surgeon(final_b2b, gstr1_data_list, gstin_input, from_period_input, to_period_input)
                 
                 if err:
                     st.error(f"Engine Error: {err}")
