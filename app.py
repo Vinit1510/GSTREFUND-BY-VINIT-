@@ -673,22 +673,19 @@ def generate_s1a_master_surgeon(b2b_df, gstr1_json_list, gstin, from_period, to_
     if not os.path.exists(TEMPLATE): return None, "Template not found."
 
     outward_rows = extract_invoice_rows_for_filler(gstr1_json_list)
-    # 1. Improved Categorization for Inward Filtering (Identical to Calculator Tab)
+    # 1. Direct ITC Identification (Identical to Refund Calculator Tab)
     if b2b_df is not None:
         temp_df = b2b_df.copy()
-        if 'Categorization' not in temp_df.columns:
-            def categorize(row):
-                desc = str(row.get('Item Description', '')).upper()
-                uqc = str(row.get('UQC', '')).upper()
-                # Matches the exact keyword list from your Calculator tab
-                goods_keywords = ['GOODS', 'ITEM', 'PCS', 'NOS', 'QTY', 'UNIT', 'KGS', 'MTR', 'BOX', 'BAG', 'SET']
-                if any(k in desc for k in goods_keywords) or any(k in uqc for k in goods_keywords):
-                    return 'Input Goods'
-                return 'Input Services'
-            temp_df['Categorization'] = temp_df.apply(categorize, axis=1)
         
-        # STRICT FILTER: Only Input Goods
-        inward_rows = temp_df[temp_df['Categorization'] == 'Input Goods'].to_dict('records')
+        # Identify the "Type of ITC" column
+        itc_type_col = next((col for col in temp_df.columns if 'Type of ITC' in str(col)), None)
+        
+        if itc_type_col:
+            # STRICT FILTER: Only rows explicitly marked as "Input Goods"
+            inward_rows = temp_df[temp_df[itc_type_col] == 'Input Goods'].to_dict('records')
+        else:
+            # Fallback if the user hasn't categorized yet: assume Input Goods but warn internally
+            inward_rows = temp_df.to_dict('records')
     else:
         inward_rows = []
 
