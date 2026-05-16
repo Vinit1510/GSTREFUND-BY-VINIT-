@@ -719,10 +719,17 @@ def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, from_period, to_pe
                 ws.cell(row=r, column=4, value=in_doc_type)
                 ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
                 ws.cell(row=r, column=6, value=str(gv(['date'], "")))
-                ws.cell(row=r, column=8, value=round(float(gv(['Taxable'], 0)), 2))
-                ws.cell(row=r, column=9, value=round(float(gv(['Integrated', 'IGST'], 0)), 2))
-                ws.cell(row=r, column=10, value=round(float(gv(['Central', 'CGST'], 0)), 2))
-                ws.cell(row=r, column=11, value=round(float(gv(['State', 'SGST'], 0)), 2))
+                
+                # USER REQUEST: If value is 0, leave it BLANK
+                def write_val(col, val):
+                    v = round(float(val), 2)
+                    if v != 0: ws.cell(row=r, column=col, value=v)
+                    else: ws.cell(row=r, column=col, value=None)
+
+                write_val(8, gv(['Taxable'], 0))
+                write_val(9, gv(['Integrated', 'IGST'], 0))
+                write_val(10, gv(['Central', 'CGST'], 0))
+                write_val(11, gv(['State', 'SGST'], 0))
             
             # --- OUTWARD SECTION (L-S) ---
             if i < len(outward_rows):
@@ -731,10 +738,17 @@ def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, from_period, to_pe
                 ws.cell(row=r, column=13, value=orow.get('doc_type', 'Invoice'))
                 ws.cell(row=r, column=14, value=str(orow['no']))
                 ws.cell(row=r, column=15, value=str(orow['dt']))
-                ws.cell(row=r, column=16, value=round(float(orow['txval']), 2))
-                ws.cell(row=r, column=17, value=round(float(orow['iamt']), 2))
-                ws.cell(row=r, column=18, value=round(float(orow['camt']), 2))
-                ws.cell(row=r, column=19, value=round(float(orow['samt']), 2))
+                
+                # USER REQUEST: If value is 0, leave it BLANK
+                def write_oval(col, val):
+                    v = round(float(val), 2)
+                    if v != 0: ws.cell(row=r, column=col, value=v)
+                    else: ws.cell(row=r, column=col, value=None)
+
+                write_oval(16, orow['txval'])
+                write_oval(17, orow['iamt'])
+                write_oval(18, orow['camt'])
+                write_oval(19, orow['samt'])
 
         tmp_buffer = io.BytesIO()
         wb.save(tmp_buffer)
