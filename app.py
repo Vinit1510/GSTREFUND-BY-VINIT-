@@ -79,7 +79,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_guide, tab1, tab2, tab3, tab_s1a = st.tabs(["📖 Guide", "📤 Upload", "📊 Calculator", "📑 Statement 1", "📋 Statement 1A"])
+tab_guide, tab1, tab2, tab3, tab_s1a = st.tabs(["📖 User Guide", "📁 Data Upload", "⚙️ Refund Calculator", "📄 Official Statement 1", "Statement 1A Excel"])
 
 with tab_guide:
     try:
@@ -98,7 +98,7 @@ with tab1:
         st.info("Please provide both GSTR-2B and GSTR-1 files to proceed to the next tabs.")
         st.stop()
     else:
-        st.success("Γ£à Files successfully loaded! You can now proceed to the 'Refund Calculator' tab.")
+        st.success("✅ Files successfully loaded! You can now proceed to the 'Refund Calculator' tab.")
 
 @st.cache_data
 def load_gstr2b(file_obj):
@@ -209,7 +209,7 @@ with tab2:
             type_col_exists = next((col for col in b2b_df.columns if 'Type of ITC' in str(col)), None)
             if type_col_exists:
                 unique_invoices['Type of ITC'] = b2b_df[type_col_exists].fillna('Input Goods')
-                st.success("Γ£à 'Type of ITC' column detected in your Excel file! Pre-filled invoice categories automatically.")
+                st.success("✅ 'Type of ITC' column detected in your Excel file! Pre-filled invoice categories automatically.")
                 b2b_df.drop(columns=[type_col_exists], inplace=True)
             else:
                 unique_invoices['Type of ITC'] = 'Input Goods'
@@ -334,9 +334,9 @@ with tab2:
             total_itc = net_itc_goods + net_itc_services
             
             col1, col2, col3 = st.columns(3)
-            col1.metric("Net ITC (Goods Only)", f"Γé╣ {net_itc_goods:,.2f}")
-            col2.metric("Total ITC (Services)", f"Γé╣ {net_itc_services:,.2f}")
-            col3.metric("Total Eligible ITC", f"Γé╣ {total_itc:,.2f}")
+            col1.metric("Net ITC (Goods Only)", f"₹ {net_itc_goods:,.2f}")
+            col2.metric("Total ITC (Services)", f"₹ {net_itc_services:,.2f}")
+            col3.metric("Total Eligible ITC", f"₹ {total_itc:,.2f}")
 
     st.header("Phase 2: Outward Supply Processing (GSTR-1 JSON)")
 
@@ -357,9 +357,9 @@ with tab2:
         adj_total_turnover = rate_summary['Taxable Value'].sum()
         
         col1, col2, col3 = st.columns(3)
-        col1.metric("Turnover of IRS", f"Γé╣ {turnover_irs:,.2f}")
-        col2.metric("Adjusted Total Turnover", f"Γé╣ {adj_total_turnover:,.2f}")
-        col3.metric("Tax Payable on IRS", f"Γé╣ {tax_payable_irs:,.2f}")
+        col1.metric("Turnover of IRS", f"₹ {turnover_irs:,.2f}")
+        col2.metric("Adjusted Total Turnover", f"₹ {adj_total_turnover:,.2f}")
+        col3.metric("Tax Payable on IRS", f"₹ {tax_payable_irs:,.2f}")
 
         st.header("Phase 3: Final Refund Computation (Rule 89(5))")
         
@@ -368,11 +368,11 @@ with tab2:
             term2 = tax_payable_irs * (net_itc_goods / total_itc)
             final_refund = max(0, term1 - term2)
             
-            st.success(f"### Maximum Permissible Refund: Γé╣ {final_refund:,.2f}")
+            st.success(f"### Maximum Permissible Refund: ₹ {final_refund:,.2f}")
             with st.expander("Show Calculation Breakdown"):
                 st.code(f"""
-Refund = [(Turnover of IRS ├ù Net ITC) / Adjusted Total Turnover] - [Tax Payable on IRS ├ù (Net ITC / Total ITC)]
-Refund = [({turnover_irs:,.2f} ├ù {net_itc_goods:,.2f}) / {adj_total_turnover:,.2f}] - [{tax_payable_irs:,.2f} ├ù ({net_itc_goods:,.2f} / {total_itc:,.2f})]
+Refund = [(Turnover of IRS × Net ITC) / Adjusted Total Turnover] - [Tax Payable on IRS × (Net ITC / Total ITC)]
+Refund = [({turnover_irs:,.2f} × {net_itc_goods:,.2f}) / {adj_total_turnover:,.2f}] - [{tax_payable_irs:,.2f} × ({net_itc_goods:,.2f} / {total_itc:,.2f})]
 Refund = [{term1:,.2f}] - [{term2:,.2f}]
 Refund = {final_refund:,.2f}
                 """)
@@ -476,18 +476,18 @@ with tab3:
     <table style="width: 100%; font-size: 11px; border-collapse: collapse; text-align: center; border: 1px solid black; color: black; font-family: Arial, sans-serif;">
         <tr style="background-color: #f8f9fa; font-weight: bold;">
             <th style="border: 1px solid black; padding: 4px; border-right: none;">&nbsp;</th>
-            <th style="border: 1px solid black; padding: 4px;">Turnover of inverted rated<br>supply of goods and<br>services (1) (Γé╣)</th>
-            <th style="border: 1px solid black; padding: 4px;">Tax payable on such<br>inverted rated supply of<br>goods and services * (Net<br>ITC / ITC availed on<br>inputs and input services)<br>(2) (Γé╣)</th>
-            <th style="border: 1px solid black; padding: 4px;">Adjusted total turnover<br>(3) (Γé╣)</th>
-            <th style="border: 1px solid black; padding: 4px;">Net input tax credit<br>(4) (Γé╣)<br><span style="font-size: 8px; color: #555555; font-weight: normal; display: block; margin-top: 4px;">Edit the Net ITC to exclude, the<br>ITC availed on input services and<br>capital goods and the ITC of<br>refund claimed under Rule 89(4A)<br>and/ or (4B)</span></th>
-            <th style="border: 1px solid black; padding: 4px;">Maximum<br>refund<br>amount to<br>be claimed<br>(5)<br>[(1├ù4├╖3)-<br>(2)]<br>(Γé╣)</th>
+            <th style="border: 1px solid black; padding: 4px;">Turnover of inverted rated<br>supply of goods and<br>services (1) (₹)</th>
+            <th style="border: 1px solid black; padding: 4px;">Tax payable on such<br>inverted rated supply of<br>goods and services * (Net<br>ITC / ITC availed on<br>inputs and input services)<br>(2) (₹)</th>
+            <th style="border: 1px solid black; padding: 4px;">Adjusted total turnover<br>(3) (₹)</th>
+            <th style="border: 1px solid black; padding: 4px;">Net input tax credit<br>(4) (₹)<br><span style="font-size: 8px; color: #555555; font-weight: normal; display: block; margin-top: 4px;">Edit the Net ITC to exclude, the<br>ITC availed on input services and<br>capital goods and the ITC of<br>refund claimed under Rule 89(4A)<br>and/ or (4B)</span></th>
+            <th style="border: 1px solid black; padding: 4px;">Maximum<br>refund<br>amount to<br>be claimed<br>(5)<br>[(1×4÷3)-<br>(2)]<br>(₹)</th>
         </tr>
         <tr>
             <td style="border: 1px solid black; padding: 4px; text-align: left; white-space: nowrap;">Integrated Tax</td>
-            <td rowspan="3" style="border: 1px solid black; padding: 4px; background-color: #f0f0f0; white-space: nowrap;">Γé╣ {turnover_irs:,.2f}</td>
-            <td rowspan="3" style="border: 1px solid black; padding: 4px; background-color: #f0f0f0; white-space: nowrap;">Γé╣ {term2:,.2f}</td>
-            <td rowspan="3" style="border: 1px solid black; padding: 4px; background-color: #f0f0f0; white-space: nowrap;">Γé╣ {adj_total_turnover:,.2f}</td>
-            <td rowspan="3" style="border: 1px solid black; padding: 4px; background-color: #f0f0f0; white-space: nowrap;">Γé╣ {net_itc_goods:,.2f}</td>
+            <td rowspan="3" style="border: 1px solid black; padding: 4px; background-color: #f0f0f0; white-space: nowrap;">₹ {turnover_irs:,.2f}</td>
+            <td rowspan="3" style="border: 1px solid black; padding: 4px; background-color: #f0f0f0; white-space: nowrap;">₹ {term2:,.2f}</td>
+            <td rowspan="3" style="border: 1px solid black; padding: 4px; background-color: #f0f0f0; white-space: nowrap;">₹ {adj_total_turnover:,.2f}</td>
+            <td rowspan="3" style="border: 1px solid black; padding: 4px; background-color: #f0f0f0; white-space: nowrap;">₹ {net_itc_goods:,.2f}</td>
             <td rowspan="3" style="border: 1px solid black; padding: 4px; white-space: nowrap;">{final_refund:,.2f}</td>
         </tr>
         <tr>
@@ -498,10 +498,10 @@ with tab3:
         </tr>
         <tr>
             <td style="border: 1px solid black; padding: 4px; text-align: left; white-space: nowrap;">CESS</td>
-            <td style="border: 1px solid black; padding: 4px; background-color: #f0f0f0;">Γé╣0.00</td>
-            <td style="border: 1px solid black; padding: 4px; background-color: #f0f0f0;">Γé╣0.00</td>
-            <td style="border: 1px solid black; padding: 4px; background-color: #f0f0f0;">Γé╣0.00</td>
-            <td style="border: 1px solid black; padding: 4px; background-color: #f0f0f0;">Γé╣0.00</td>
+            <td style="border: 1px solid black; padding: 4px; background-color: #f0f0f0;">₹0.00</td>
+            <td style="border: 1px solid black; padding: 4px; background-color: #f0f0f0;">₹0.00</td>
+            <td style="border: 1px solid black; padding: 4px; background-color: #f0f0f0;">₹0.00</td>
+            <td style="border: 1px solid black; padding: 4px; background-color: #f0f0f0;">₹0.00</td>
             <td style="border: 1px solid black; padding: 4px;">0.00</td>
         </tr>
         <tr>
@@ -553,12 +553,12 @@ with tab3:
         
         # 1. HTML as XLS (Excel will open this flawlessly matching the UI)
         html_for_excel = f"<html xmlns:x=\"urn:schemas-microsoft-com:office:excel\"><head><meta charset=\"UTF-8\"><style>body {{ font-family: Arial, sans-serif; }}</style></head><body>{html_report}</body></html>"
-        colA.download_button("≡ƒôè Download as Excel (Formatted)", data=html_for_excel.encode('utf-8'), file_name=f"{file_name_prefix}.xls", mime="application/vnd.ms-excel", width="stretch")
+        colA.download_button("📊 Download as Excel (Formatted)", data=html_for_excel.encode('utf-8'), file_name=f"{file_name_prefix}.xls", mime="application/vnd.ms-excel", width="stretch")
 
         # 2. Real PDF Generation
         pdf_buffer = io.BytesIO()
-        # Replace the Γé╣ symbol with Rs. exclusively for the PDF generation to avoid xhtml2pdf font encoding errors
-        safe_pdf_report = html_report.replace('Γé╣', 'Rs. ')
+        # Replace the ₹ symbol with Rs. exclusively for the PDF generation to avoid xhtml2pdf font encoding errors
+        safe_pdf_report = html_report.replace('₹', 'Rs. ')
         
         # Force a page break right before Statement 1 so it starts cleanly on page 2
         safe_pdf_report = safe_pdf_report.replace(
@@ -581,7 +581,7 @@ with tab3:
         pisa.CreatePDF(io.StringIO(pdf_html), dest=pdf_buffer)
         pdf_data = pdf_buffer.getvalue()
         
-        colB.download_button("≡ƒû¿∩╕Å Download Actual PDF File", data=pdf_data, file_name=f"{file_name_prefix}.pdf", mime="application/pdf", width="stretch")
+        colB.download_button("🖨️ Download Actual PDF File", data=pdf_data, file_name=f"{file_name_prefix}.pdf", mime="application/pdf", width="stretch")
 
         # Render the Report Visual
         st.markdown("<br>", unsafe_allow_html=True)
@@ -703,14 +703,6 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
             return None, "Sheet 'RFD_STMT01A' not found."
         ws = wb["RFD_STMT01A"]
         
-        # UNLOCK ALL SHEETS: Completely remove protection and WIPE PASSWORDS
-        wb.security.workbookPassword = None
-        for sheet_name in wb.sheetnames:
-            wb[sheet_name].protection.sheet = False
-            wb[sheet_name].protection.password = None
-            wb[sheet_name].protection.disable()
-        wb.security.lockStructure = False
-        
         ws["C4"] = str(gstin)
         ws["C5"] = str(from_period)
         ws["C6"] = str(to_period)
@@ -800,27 +792,23 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
                             
                             content = xml.encode('utf-8')
                         
-                        # 2. FORCE TRANSPLANT Relationships and Drawings
+                        # 2. FORCE TRANSPLANT original Relationship and Drawing files
                         if "xl/worksheets/_rels/sheet2.xml.rels" in item.filename:
+                            # Use original relationship mapping to ensure rIds for buttons match
                             content = zorig.read("xl/worksheets/_rels/sheet2.xml.rels")
-                        elif "xl/drawings/drawing1.xml" in item.filename:
-                            content = zorig.read("xl/drawings/drawing1.xml")
-                        elif "xl/drawings/_rels/drawing1.xml.rels" in item.filename:
-                            content = zorig.read("xl/drawings/_rels/drawing1.xml.rels")
                         
                         zout.writestr(item, content)
                     
                     # Ensure all support files (drawings, VML, control properties) are present
                     for item in zorig.infolist():
-                        support_paths = ["xl/drawings/", "xl/ctrlProps/", "xl/vmlDrawing", "xl/media/"]
-                        if any(x in item.filename for x in support_paths):
+                        if any(x in item.filename for x in ["xl/drawings/", "xl/ctrlProps/", "xl/vmlDrawing"]):
                             if item.filename not in zout.namelist():
                                 zout.writestr(item, zorig.read(item.filename))
         return final_buf.getvalue(), None
     except Exception as e: return None, str(e)
 
 with tab_s1a:
-    st.header("📋 Statement 1A Automation Utility")
+    st.header("📥 Statement 1A Automation Utility")
     st.write("Automatically populate the official **Statement 1A XLSM Offline Tool** using your uploaded data.")
     
     with st.expander("📝 Business Details for Statement 1A", expanded=True):
