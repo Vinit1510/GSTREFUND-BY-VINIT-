@@ -659,7 +659,7 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
                 b2cs_samt = sum(rec.get('samt', 0) for rec in data['b2cs'])
                 if b2cs_txval != 0:
                     rows.append({
-                        'type': 'B2C-Small', 'no': '', 'dt': '', 
+                        'type': 'B2C-Small', 'no': 'B2C-Small', 'dt': '', 
                         'txval': b2cs_txval, 'iamt': b2cs_iamt, 
                         'camt': b2cs_camt, 'samt': b2cs_samt,
                         'doc_type': 'Invoice/Bill of Entry'
@@ -667,115 +667,92 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
         except: continue
     return rows
 
-def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, from_period, to_period):
-    import openpyxl, zipfile, io, os
+def generate_s1a_final_surgical(b2b_df, gstr1_json_list, gstin, from_period, to_period):
+    import zipfile, io, re, os
     TEMPLATE = "GST_REFUND_S01A.xlsm"
     if not os.path.exists(TEMPLATE): return None, "Template not found."
 
     outward_rows = extract_invoice_rows_for_filler(gstr1_json_list)
-    inward_rows = b2b_df.to_dict('records') if b2b_df is not None else []
+    
+    # USER REQUEST: Only Input Goods for Inward
+    if b2b_df is not None and 'Categorization' in b2b_df.columns:
+        inward_rows = b2b_df[b2b_df['Categorization'] == 'Input Goods'].to_dict('records')
+    else:
+        inward_rows = b2b_df.to_dict('records') if b2b_df is not None else []
 
     try:
-        # 1. Fill data using Openpyxl (Perfect XML, but it usually drops buttons)
-        wb = openpyxl.load_workbook(TEMPLATE, keep_vba=True)
-        if "RFD_STMT01A" not in wb.sheetnames:
-            return None, "Sheet 'RFD_STMT01A' not found in template."
-        ws = wb["RFD_STMT01A"]
-        
-        # Headers
-        ws["C4"] = str(gstin)
-        ws["C5"] = str(from_period)
-        ws["C6"] = str(to_period)
-        
+        cell_updates = {}
+        def add_upd(r, c_let, val, is_s=False):
+            if val is None or val == 0 or val == "": return
+            v_esc = str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            if is_s: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
+            else:
+                try: cell_updates[f"{c_let}{r}"] = f'><v>{round(float(val), 2)}</v>'
+                except: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
+
+        add_upd(4, 'C', gstin, True)
+        add_upd(5, 'C', from_period, True)
+        add_upd(6, 'C', to_period, True)
+
         max_len = max(len(inward_rows), len(outward_rows))
-        
-        # Unified Loop for all data
         for i in range(max_len):
             r = 11 + i
-            if r > 10000: break # Template limit
-            
-            # Always write Serial Number if there is data in this row
-            ws.cell(row=r, column=1, value=i+1)
-            
-            # --- INWARD SECTION (A-K) ---
+            if r > 10000: break
+            add_upd(r, 'A', i+1)
             if i < len(inward_rows):
                 row = inward_rows[i]
                 def gv(keys, default=0):
                     for k in keys:
                         m = next((col for col in row if k.lower() in str(col).lower()), None)
-                        if m: 
-                            try: return float(row[m])
-                            except: return row[m]
+                        if m: return row[m]
                     return default
                 
-                # Dynamic Doc Type for Inward
-                in_doc_type = str(gv(['Document Type', 'Doc Type', 'Note Type'], "Invoice/Bill of Entry"))
-                if 'credit' in in_doc_type.lower(): in_doc_type = "Credit Note"
-                elif 'debit' in in_doc_type.lower(): in_doc_type = "Debit Note"
-                else: in_doc_type = "Invoice/Bill of Entry"
+                dt = str(gv(['Document Type', 'Doc Type'], "Invoice/Bill of Entry"))
+                if 'credit' in dt.lower(): dt = "Credit Note"
+                elif 'debit' in dt.lower(): dt = "Debit Note"
+                else: dt = "Invoice/Bill of Entry"
 
-                ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
-                ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
-                ws.cell(row=r, column=4, value=in_doc_type)
-                ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
-                ws.cell(row=r, column=6, value=str(gv(['date'], "")))
-                
-                # USER REQUEST: If value is 0, leave it BLANK
-                def write_val(col, val):
-                    v = round(float(val), 2)
-                    if v != 0: ws.cell(row=r, column=col, value=v)
-                    else: ws.cell(row=r, column=col, value=None)
+                add_upd(r, 'B', "Inward Supply from Registered Person", True)
+                add_upd(r, 'C', gv(['GSTIN', 'GST No'], ""), True)
+                add_upd(r, 'D', dt, True)
+                add_upd(r, 'E', gv(['Invoice number', 'Inv No', 'Number'], ""), True)
+                add_upd(r, 'F', gv(['date'], ""), True)
+                add_upd(r, 'H', gv(['Taxable'], 0))
+                add_upd(r, 'I', gv(['Integrated', 'IGST'], 0))
+                add_upd(r, 'J', gv(['Central', 'CGST'], 0))
+                add_upd(r, 'K', gv(['State', 'SGST'], 0))
 
-                write_val(8, gv(['Taxable'], 0))
-                write_val(9, gv(['Integrated', 'IGST'], 0))
-                write_val(10, gv(['Central', 'CGST'], 0))
-                write_val(11, gv(['State', 'SGST'], 0))
-            
-            # --- OUTWARD SECTION (L-S) ---
             if i < len(outward_rows):
                 orow = outward_rows[i]
-                ws.cell(row=r, column=12, value=orow['type'])
-                ws.cell(row=r, column=13, value=orow.get('doc_type', 'Invoice'))
-                ws.cell(row=r, column=14, value=str(orow['no']))
-                ws.cell(row=r, column=15, value=str(orow['dt']))
-                
-                # USER REQUEST: If value is 0, leave it BLANK
-                def write_oval(col, val):
-                    v = round(float(val), 2)
-                    if v != 0: ws.cell(row=r, column=col, value=v)
-                    else: ws.cell(row=r, column=col, value=None)
+                add_upd(r, 'L', orow['type'], True)
+                add_upd(r, 'M', orow.get('doc_type', 'Invoice/Bill of Entry'), True)
+                add_upd(r, 'N', orow['no'], True)
+                add_upd(r, 'O', orow['dt'], True)
+                add_upd(r, 'P', orow['txval'])
+                add_upd(r, 'Q', orow['iamt'])
+                add_upd(r, 'R', orow['camt'])
+                add_upd(r, 'S', orow['samt'])
 
-                write_oval(16, orow['txval'])
-                write_oval(17, orow['iamt'])
-                write_oval(18, orow['camt'])
-                write_oval(19, orow['samt'])
-
-        tmp_buffer = io.BytesIO()
-        wb.save(tmp_buffer)
-        filled_data = tmp_buffer.getvalue()
-
-        # 2. SURGICAL TRANSPLANT: Re-insert buttons and relationships from Template
-        final_buffer = io.BytesIO()
-        with zipfile.ZipFile(io.BytesIO(filled_data), 'r') as zfilled:
-            with zipfile.ZipFile(TEMPLATE, 'r') as ztemp:
-                with zipfile.ZipFile(final_buffer, 'w') as zout:
-                    # Copy everything from filled file except the relationship file that openpyxl broke
-                    for item in zfilled.infolist():
-                        # Skip relationships for sheet2 (where buttons are)
-                        if "xl/worksheets/_rels/sheet2.xml.rels" in item.filename: continue
-                        zout.writestr(item, zfilled.read(item.filename))
-                    
-                    # Transplant the ORIGINAL relationship file and DRAWINGS from the Template
-                    for item in ztemp.infolist():
-                        if "xl/drawings/" in item.filename or "xl/worksheets/_rels/sheet2.xml.rels" in item.filename:
-                            if item.filename not in zout.namelist():
-                                zout.writestr(item, ztemp.read(item.filename))
-                    
-                    # Ensure vbaProject is there (usually preserved by keep_vba but double check)
-                    if "xl/vbaProject.bin" not in zout.namelist() and "xl/vbaProject.bin" in ztemp.namelist():
-                        zout.writestr("xl/vbaProject.bin", ztemp.read("xl/vbaProject.bin"))
-        
-        return final_buffer.getvalue(), None
+        output_buffer = io.BytesIO()
+        with zipfile.ZipFile(TEMPLATE, 'r') as zin:
+            with zipfile.ZipFile(output_buffer, 'w') as zout:
+                for item in zin.infolist():
+                    content = zin.read(item.filename)
+                    # Surgical Replace ONLY for the data sheet
+                    if "xl/worksheets/sheet2.xml" in item.filename:
+                        xml = content.decode('utf-8')
+                        def sub_func(m):
+                            tag_prefix = m.group(1)
+                            ref = m.group(2)
+                            if ref in cell_updates:
+                                return f'<{tag_prefix}c r="{ref}"{cell_updates[ref]}</{tag_prefix}c>'
+                            return m.group(0)
+                        
+                        # Matches <c r="A1"...> or <x:c r="A1"...>
+                        xml = re.sub(r'<([^:>]*?)c r="([A-Z0-9]+)"[^>]*>.*?</\1c>', sub_func, xml, flags=re.DOTALL)
+                        content = xml.encode('utf-8')
+                    zout.writestr(item, content)
+        return output_buffer.getvalue(), None
     except Exception as e: return None, str(e)
 
 with tab_s1a:
@@ -795,13 +772,16 @@ with tab_s1a:
         if not gstr1_path:
             st.error("Please upload GSTR-1 JSON files first.")
         else:
-            with st.spinner("Populating template via Hybrid Ultra Engine..."):
+            with st.spinner("Populating template via Final Surgical Engine..."):
                 gstr1_data_list = []
                 for f in gstr1_path:
                     f.seek(0)
                     gstr1_data_list.append(json.load(f))
                 
-                excel_data, err = generate_s1a_hybrid_ultra(b2b_df, gstr1_data_list, gstin_input, from_period_input, to_period_input)
+                # Fetch categorized data if available for filtering
+                final_b2b = st.session_state.get('categorized_df', b2b_df)
+                
+                excel_data, err = generate_s1a_final_surgical(final_b2b, gstr1_data_list, gstin_input, from_period_input, to_period_input)
                 
                 if err:
                     st.error(f"Engine Error: {err}")
