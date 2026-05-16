@@ -703,6 +703,11 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
             return None, "Sheet 'RFD_STMT01A' not found."
         ws = wb["RFD_STMT01A"]
         
+        # UNLOCK PROTECTION: Allow user to edit everything
+        ws.protection.sheet = False
+        ws.protection.disable()
+        wb.security.lockStructure = False
+        
         ws["C4"] = str(gstin)
         ws["C5"] = str(from_period)
         ws["C6"] = str(to_period)
