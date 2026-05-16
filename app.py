@@ -634,22 +634,24 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
                         iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
                         camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in inv.get('itms', []))
                         samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in inv.get('itms', []))
-                        rows.append({'type': 'B2B', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt})
+                        rows.append({'type': 'B2B', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'doc_type': 'Invoice/Bill of Entry'})
             if 'b2cl' in data:
                 for state in data['b2cl']:
                     for inv in state.get('inv', []):
                         txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
                         iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
-                        rows.append({'type': 'B2C-Large', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': 0.0, 'samt': 0.0})
+                        rows.append({'type': 'B2C-Large', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': 0.0, 'samt': 0.0, 'doc_type': 'Invoice/Bill of Entry'})
             if 'cdnr' in data:
                 for company in data['cdnr']:
                     for nt in company.get('nt', []):
-                        # USER REQUEST: No signs for CDNR (keep positive)
+                        nt_type = nt.get('ntty', 'C')
+                        # USER REQUEST: Use these specific strings for Outward
+                        doc_str = 'Credit Note' if nt_type == 'C' else 'Debit Note'
                         txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in nt.get('itms', []))
                         iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in nt.get('itms', []))
                         camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', []))
                         samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', []))
-                        rows.append({'type': 'B2B', 'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt})
+                        rows.append({'type': 'B2B', 'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'doc_type': doc_str})
         except: continue
     return rows
 
@@ -694,9 +696,15 @@ def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, from_period, to_pe
                             except: return row[m]
                     return default
                 
+                # Dynamic Doc Type for Inward
+                in_doc_type = str(gv(['Document Type', 'Doc Type', 'Note Type'], "Invoice/Bill of Entry"))
+                if 'credit' in in_doc_type.lower(): in_doc_type = "Credit Note"
+                elif 'debit' in in_doc_type.lower(): in_doc_type = "Debit Note"
+                else: in_doc_type = "Invoice/Bill of Entry"
+
                 ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
                 ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
-                ws.cell(row=r, column=4, value="Invoice/Bill of Entry")
+                ws.cell(row=r, column=4, value=in_doc_type)
                 ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
                 ws.cell(row=r, column=6, value=str(gv(['date'], "")))
                 ws.cell(row=r, column=8, value=round(float(gv(['Taxable'], 0)), 2))
@@ -708,7 +716,7 @@ def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, from_period, to_pe
             if i < len(outward_rows):
                 orow = outward_rows[i]
                 ws.cell(row=r, column=12, value=orow['type'])
-                ws.cell(row=r, column=13, value="Invoice")
+                ws.cell(row=r, column=13, value=orow.get('doc_type', 'Invoice'))
                 ws.cell(row=r, column=14, value=str(orow['no']))
                 ws.cell(row=r, column=15, value=str(orow['dt']))
                 ws.cell(row=r, column=16, value=round(float(orow['txval']), 2))
