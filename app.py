@@ -811,8 +811,11 @@ with tab_s1a:
                     f.seek(0)
                     gstr1_data_list.append(json.load(f))
                 
-                # Fetch categorized data if available for filtering
-                final_b2b = st.session_state.get('categorized_df', b2b_df)
+                # MANDATORY: Use the exact Categorized DF from the Calculator tab if it exists
+                final_b2b = st.session_state.get('categorized_df')
+                if final_b2b is None:
+                    # If not calculated, use raw but warn the user or auto-categorize
+                    final_b2b = b2b_df
                 
                 excel_data, err = generate_s1a_master_surgeon(final_b2b, gstr1_data_list, gstin_input, from_period_input, to_period_input)
                 
