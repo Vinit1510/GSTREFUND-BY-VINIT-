@@ -750,6 +750,11 @@ def generate_s1a_master_surgeon(b2b_df, gstr1_json_list, gstin, from_period, to_
                         content = zfill.read(item.filename)
                         if "xl/worksheets/sheet2.xml" in item.filename:
                             xml = content.decode('utf-8')
+                            
+                            # FIX: Add missing namespace declaration if not present
+                            if 'xmlns:r=' not in xml:
+                                xml = xml.replace('<worksheet', '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"', 1)
+                            
                             # Insert original drawing tags before </worksheet>
                             if draw_tags:
                                 xml = xml.replace('</worksheet>', "".join(draw_tags) + '</worksheet>')
