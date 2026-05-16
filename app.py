@@ -673,22 +673,27 @@ def generate_s1a_master_surgeon(b2b_df, gstr1_json_list, gstin, from_period, to_
     if not os.path.exists(TEMPLATE): return None, "Template not found."
 
     outward_rows = extract_invoice_rows_for_filler(gstr1_json_list)
-    # 1. Force Categorization for Inward Filtering
+    # 1. Improved Categorization for Inward Filtering
     if b2b_df is not None:
         temp_df = b2b_df.copy()
         if 'Categorization' not in temp_df.columns:
-            # Re-run categorization logic if not present
-            temp_df['Categorization'] = 'Input Services' # Default
-            goods_keywords = ['GOODS', 'ITEM', 'PCS', 'NOS', 'QTY', 'UNIT']
+            # Match the Calculator's logic EXACTLY
             def categorize(row):
                 desc = str(row.get('Item Description', '')).upper()
                 uqc = str(row.get('UQC', '')).upper()
+                # Comprehensive keyword list
+                goods_keywords = ['GOODS', 'ITEM', 'PCS', 'NOS', 'QTY', 'UNIT', 'KGS', 'MTR', 'BOX', 'BAG', 'SET']
                 if any(k in desc for k in goods_keywords) or any(k in uqc for k in goods_keywords):
                     return 'Input Goods'
                 return 'Input Services'
             temp_df['Categorization'] = temp_df.apply(categorize, axis=1)
         
+        # Filter for Input Goods
         inward_rows = temp_df[temp_df['Categorization'] == 'Input Goods'].to_dict('records')
+        
+        # SAFETY FALLBACK: If filtering resulted in 0 rows, take all B2B entries
+        if len(inward_rows) == 0:
+            inward_rows = temp_df.to_dict('records')
     else:
         inward_rows = []
 
