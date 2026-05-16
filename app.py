@@ -703,9 +703,11 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
             return None, "Sheet 'RFD_STMT01A' not found."
         ws = wb["RFD_STMT01A"]
         
-        # UNLOCK ALL SHEETS: Completely remove protection from the entire workbook
+        # UNLOCK ALL SHEETS: Completely remove protection and WIPE PASSWORDS
+        wb.security.workbookPassword = None
         for sheet_name in wb.sheetnames:
             wb[sheet_name].protection.sheet = False
+            wb[sheet_name].protection.password = None
             wb[sheet_name].protection.disable()
         wb.security.lockStructure = False
         
