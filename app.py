@@ -697,14 +697,37 @@ def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, period):
                             add_upd(r_idx, 'R', orow.get('camt', 0))
                             add_upd(r_idx, 'S', orow.get('samt', 0))
 
-                        # Single-pass substitution for blazing speed
                         def sub_func(m):
-                            ref = m.group(1)
+                            ref = m.group(2)
+                            tag_prefix = m.group(1)
                             if ref in cell_updates:
-                                return f'<{m.group(2)}c r="{ref}"{cell_updates[ref]}</{m.group(2)}c>'
+                                return f'<{tag_prefix}c r="{ref}"{cell_updates[ref]}</{tag_prefix}c>'
                             return m.group(0)
 
-                        xml = re.sub(r'<([^:>]*?)c r="([A-Z0-9]+)"[^>]*>.*?</\1c>', sub_func, xml, flags=re.DOTALL)
+                        # Matches <c r="A1"...>...</c> or <x:c r="A1"...>...</x:c>
+                        row_pattern = re.compile(r'<([^:>]*?)c r="([A-Z0-9]+)"[^>]*>.*?</\1c>', flags=re.DOTALL)
+                        
+                        def process_row_xml(row_xml):
+                            if ' r="' not in row_xml: return row_xml
+                            return row_pattern.sub(sub_func, row_xml)
+
+                        # Extreme Speed: Split by row to avoid scanning the whole file
+                        parts = xml.split('<row ')
+                        new_parts = [parts[0]]
+                        for p in parts[1:]:
+                            # Extract row index from <row r="11" ...>
+                            r_match = re.search(r'r="(\d+)"', p)
+                            if r_match:
+                                r_num = int(r_match.group(1))
+                                # Only process rows we care about (Headers 4, 6 and Data 11+)
+                                if r_num in [4, 6] or r_num >= 11:
+                                    new_parts.append(process_row_xml(p))
+                                else:
+                                    new_parts.append(p)
+                            else:
+                                new_parts.append(p)
+                        
+                        xml = '<row '.join(new_parts)
                         content = xml.encode('utf-8')
                     zout.writestr(item, content)
         return output_buffer.getvalue(), None
