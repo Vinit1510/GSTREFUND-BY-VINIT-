@@ -620,7 +620,7 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
         except: continue
     return rows
 
-def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, from_period, to_period):
+def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, period):
     """
     SURGICAL XLSM ENGINE:
     Opens XLSM as ZIP, modifies worksheet XML via Regex/String replacement.
@@ -662,8 +662,7 @@ def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, from_period, to_p
                                 except: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
 
                         add_upd(4, 'C', gstin_input, True)
-                        add_upd(5, 'C', from_period, True)
-                        add_upd(6, 'C', to_period, True)
+                        add_upd(6, 'C', period, True) # Period on Row 6
 
                         def gv(r_dict, keys, default=0):
                             for k in keys:
@@ -680,10 +679,11 @@ def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, from_period, to_p
                             add_upd(r_idx, 'D', "Invoice/Bill of Entry", True)
                             add_upd(r_idx, 'E', gv(row, ['Invoice number', 'Inv No', 'Number'], ""), True)
                             add_upd(r_idx, 'F', gv(row, ['date'], ""), True)
-                            add_upd(r_idx, 'G', gv(row, ['Taxable'], 0))
-                            add_upd(r_idx, 'H', gv(row, ['Integrated', 'IGST'], 0))
-                            add_upd(r_idx, 'I', gv(row, ['Central', 'CGST'], 0))
-                            add_upd(r_idx, 'J', gv(row, ['State', 'SGST'], 0))
+                            add_upd(r_idx, 'G', "", True) # Port Code
+                            add_upd(r_idx, 'H', gv(row, ['Taxable'], 0))
+                            add_upd(r_idx, 'I', gv(row, ['Integrated', 'IGST'], 0))
+                            add_upd(r_idx, 'J', gv(row, ['Central', 'CGST'], 0))
+                            add_upd(r_idx, 'K', gv(row, ['State', 'SGST'], 0))
 
                         for i, orow in enumerate(outward_rows):
                             r_idx = 11 + i
@@ -719,9 +719,8 @@ with tab_s1a:
         gstin_input = c1.text_input("GSTIN", value=user_gstin if user_gstin != "Unknown" else "", placeholder="Enter GSTIN", key="s1a_gstin_in")
         legal_name_input = c2.text_input("Legal Name", value=user_legal_name if user_legal_name != "Unknown" else "", placeholder="Enter Legal Name", key="s1a_legal_name_in")
         
-        c3, c4 = st.columns(2)
-        from_period = c3.text_input("From Period (mmyyyy)", placeholder="042024", key="s1a_from_p")
-        to_period = c4.text_input("To Period (mmyyyy)", placeholder="032025", key="s1a_to_p")
+        c3 = st.columns(1)[0]
+        period_input = c3.text_input("Return Period (mmyyyy)", placeholder="092025", key="s1a_period_p")
 
     if st.button("🚀 Generate & Fill Statement 1A Excel", width="stretch", type="primary", key="s1a_gen_btn"):
         if not gstr1_path:
@@ -733,7 +732,7 @@ with tab_s1a:
                     f.seek(0)
                     gstr1_data_list.append(json.load(f))
                 
-                excel_data, err = generate_s1a_xlsm_surgical(b2b_df, gstr1_data_list, gstin_input, from_period, to_period)
+                excel_data, err = generate_s1a_xlsm_surgical(b2b_df, gstr1_data_list, gstin_input, period_input)
                 
                 if err:
                     st.error(f"Engine Error: {err}")
