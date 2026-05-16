@@ -667,27 +667,34 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
         except: continue
     return rows
 
-def generate_s1a_master_surgeon(b2b_df, gstr1_json_list, gstin, from_period, to_period):
+def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_period, to_period):
     import openpyxl, zipfile, io, os, re
     TEMPLATE = "GST_REFUND_S01A.xlsm"
     if not os.path.exists(TEMPLATE): return None, "Template not found."
 
     outward_rows = extract_invoice_rows_for_filler(gstr1_json_list)
-    # 1. Direct ITC Identification (Identical to Refund Calculator Tab)
+    # 1. Combined Inward Identification (B2B + CDNR)
+    inward_rows = []
+    
+    # Process B2B
     if b2b_df is not None:
-        temp_df = b2b_df.copy()
-        
-        # Identify the "Type of ITC" column
-        itc_type_col = next((col for col in temp_df.columns if 'Type of ITC' in str(col)), None)
-        
-        if itc_type_col:
-            # STRICT FILTER: Only rows explicitly marked as "Input Goods"
-            inward_rows = temp_df[temp_df[itc_type_col] == 'Input Goods'].to_dict('records')
+        temp_b2b = b2b_df.copy()
+        itc_col = next((col for col in temp_b2b.columns if 'Type of ITC' in str(col)), None)
+        if itc_col:
+            b2b_filtered = temp_b2b[temp_b2b[itc_col] == 'Input Goods']
+            inward_rows.extend(b2b_filtered.to_dict('records'))
         else:
-            # Fallback if the user hasn't categorized yet: assume Input Goods but warn internally
-            inward_rows = temp_df.to_dict('records')
-    else:
-        inward_rows = []
+            inward_rows.extend(temp_b2b.to_dict('records'))
+
+    # Process CDNR (Credit/Debit Notes)
+    if cdnr_df is not None and not cdnr_df.empty:
+        temp_cdn = cdnr_df.copy()
+        itc_col_cdn = next((col for col in temp_cdn.columns if 'Type of ITC' in str(col)), None)
+        if itc_col_cdn:
+            cdn_filtered = temp_cdn[temp_cdn[itc_col_cdn] == 'Input Goods']
+            inward_rows.extend(cdn_filtered.to_dict('records'))
+        else:
+            inward_rows.extend(temp_cdn.to_dict('records'))
 
     try:
         # 1. Fill data using Openpyxl (Handles cell creation and types perfectly)
@@ -720,7 +727,7 @@ def generate_s1a_master_surgeon(b2b_df, gstr1_json_list, gstin, from_period, to_
                 ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
                 ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
                 ws.cell(row=r, column=4, value=dt)
-                ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
+                ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Note number', 'Inv No', 'Number'], "")))
                 ws.cell(row=r, column=6, value=str(gv(['date'], "")))
                 def w(c, v):
                     try: 
@@ -806,7 +813,7 @@ with tab_s1a:
                 # Fetch categorized data if available for filtering
                 final_b2b = st.session_state.get('categorized_df', b2b_df)
                 
-                excel_data, err = generate_s1a_master_surgeon(final_b2b, gstr1_data_list, gstin_input, from_period_input, to_period_input)
+                excel_data, err = generate_s1a_master_surgeon(final_b2b, cdnr_df, gstr1_data_list, gstin_input, from_period_input, to_period_input)
                 
                 if err:
                     st.error(f"Engine Error: {err}")
