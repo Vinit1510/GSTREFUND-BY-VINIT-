@@ -652,69 +652,59 @@ def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, from_period, to_p
                     if item.filename == sheet_file:
                         xml = content.decode('utf-8')
                         
-                        def replace_cell(xml_str, row, col_letter, value, is_str=False):
-                            ref = f"{col_letter}{row}"
-                            # Shielded Pattern: Handles <c r="A1"> or <x:c r="A1">
-                            pattern = rf'<[^:>]*c r="{ref}"[^>]*>.*?</[^:>]*c>'
-                            
-                            if is_str:
-                                # Safe HTML escaping for XML
-                                val_str = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                                replacement = f'<c r="{ref}" t="inlineStr"><is><t>{val_str}</t></is></c>'
+                        # --- HIGH-SPEED PASS: Map cells to their values ---
+                        cell_updates = {}
+                        def add_upd(r, c_let, val, is_s=False):
+                            v_esc = str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                            if is_s: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
                             else:
-                                try:
-                                    val_num = float(value)
-                                    replacement = f'<c r="{ref}"><v>{val_num}</v></c>'
-                                except:
-                                    replacement = f'<c r="{ref}" t="inlineStr"><is><t>{value}</t></is></c>'
-                            
-                            if re.search(pattern, xml_str):
-                                return re.sub(pattern, replacement, xml_str, flags=re.DOTALL)
-                            else:
-                                return xml_str
+                                try: cell_updates[f"{c_let}{r}"] = f'><v>{float(val)}</v>'
+                                except: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
 
-                        # Fill Headers (Shielded)
-                        xml = replace_cell(xml, 4, 'C', gstin_input if gstin_input else "", True)
-                        xml = replace_cell(xml, 5, 'C', from_period if from_period else "", True)
-                        xml = replace_cell(xml, 6, 'C', to_period if to_period else "", True)
+                        add_upd(4, 'C', gstin_input, True)
+                        add_upd(5, 'C', from_period, True)
+                        add_upd(6, 'C', to_period, True)
 
-                        # Fill Inward (Shielded Loop)
+                        def gv(r_dict, keys, default=0):
+                            for k in keys:
+                                m = next((col for col in r_dict if k.lower() in str(col).lower()), None)
+                                if m: return r_dict[m]
+                            return default
+
                         for i, row in enumerate(inward_rows):
-                            r = 11 + i
-                            if r > 2000: break # Safety limit for template rows
-                            
-                            # Fuzzy column mapping for this specific row
-                            def gv(keys, default=0):
-                                for k in keys:
-                                    match = next((col for col in row if k.lower() in str(col).lower()), None)
-                                    if match: return row[match]
-                                return default
+                            r_idx = 11 + i
+                            if r_idx > 2000: break
+                            add_upd(r_idx, 'A', i+1)
+                            add_upd(r_idx, 'B', "Inward Supply from Registered Person", True)
+                            add_upd(r_idx, 'C', gv(row, ['GSTIN', 'GST No'], ""), True)
+                            add_upd(r_idx, 'D', "Invoice/Bill of Entry", True)
+                            add_upd(r_idx, 'E', gv(row, ['Invoice number', 'Inv No', 'Number'], ""), True)
+                            add_upd(r_idx, 'F', gv(row, ['date'], ""), True)
+                            add_upd(r_idx, 'G', gv(row, ['Taxable'], 0))
+                            add_upd(r_idx, 'H', gv(row, ['Integrated', 'IGST'], 0))
+                            add_upd(r_idx, 'I', gv(row, ['Central', 'CGST'], 0))
+                            add_upd(r_idx, 'J', gv(row, ['State', 'SGST'], 0))
 
-                            xml = replace_cell(xml, r, 'A', i+1)
-                            xml = replace_cell(xml, r, 'B', "Inward Supply from Registered Person", True)
-                            xml = replace_cell(xml, r, 'C', gv(['GSTIN', 'GST No'], ""), True)
-                            xml = replace_cell(xml, r, 'D', "Invoice/Bill of Entry", True)
-                            xml = replace_cell(xml, r, 'E', gv(['Invoice number', 'Inv No', 'Number'], ""), True)
-                            xml = replace_cell(xml, r, 'F', gv(['date'], ""), True)
-                            xml = replace_cell(xml, r, 'G', gv(['Taxable'], 0))
-                            xml = replace_cell(xml, r, 'H', gv(['Integrated', 'IGST'], 0))
-                            xml = replace_cell(xml, r, 'I', gv(['Central', 'CGST'], 0))
-                            xml = replace_cell(xml, r, 'J', gv(['State', 'SGST'], 0))
-
-                        # Fill Outward (Shielded Loop)
                         for i, orow in enumerate(outward_rows):
-                            r = 11 + i
-                            if r > 2000: break
-                            
-                            xml = replace_cell(xml, r, 'L', orow.get('type', 'B2B'), True)
-                            xml = replace_cell(xml, r, 'M', "Invoice", True)
-                            xml = replace_cell(xml, r, 'N', str(orow.get('no', '')), True)
-                            xml = replace_cell(xml, r, 'O', str(orow.get('dt', '')), True)
-                            xml = replace_cell(xml, r, 'P', float(orow.get('txval', 0)))
-                            xml = replace_cell(xml, r, 'Q', float(orow.get('iamt', 0)))
-                            xml = replace_cell(xml, r, 'R', float(orow.get('camt', 0)))
-                            xml = replace_cell(xml, r, 'S', float(orow.get('samt', 0)))
+                            r_idx = 11 + i
+                            if r_idx > 2000: break
+                            add_upd(r_idx, 'L', orow.get('type', 'B2B'), True)
+                            add_upd(r_idx, 'M', "Invoice", True)
+                            add_upd(r_idx, 'N', orow.get('no', ''), True)
+                            add_upd(r_idx, 'O', orow.get('dt', ''), True)
+                            add_upd(r_idx, 'P', orow.get('txval', 0))
+                            add_upd(r_idx, 'Q', orow.get('iamt', 0))
+                            add_upd(r_idx, 'R', orow.get('camt', 0))
+                            add_upd(r_idx, 'S', orow.get('samt', 0))
 
+                        # Single-pass substitution for blazing speed
+                        def sub_func(m):
+                            ref = m.group(1)
+                            if ref in cell_updates:
+                                return f'<{m.group(2)}c r="{ref}"{cell_updates[ref]}</{m.group(2)}c>'
+                            return m.group(0)
+
+                        xml = re.sub(r'<([^:>]*?)c r="([A-Z0-9]+)"[^>]*>.*?</\1c>', sub_func, xml, flags=re.DOTALL)
                         content = xml.encode('utf-8')
                     zout.writestr(item, content)
         return output_buffer.getvalue(), None
