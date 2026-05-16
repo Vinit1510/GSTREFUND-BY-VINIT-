@@ -653,12 +653,15 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
                         samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', []))
                         rows.append({'type': 'B2B', 'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'doc_type': doc_str})
             if 'b2cs' in data:
-                for rec in data['b2cs']:
-                    # B2CS is summarized, but we report it as B2C-Small in Stmt 1A
+                b2cs_txval = sum(rec.get('txval', 0) for rec in data['b2cs'])
+                b2cs_iamt = sum(rec.get('iamt', 0) for rec in data['b2cs'])
+                b2cs_camt = sum(rec.get('camt', 0) for rec in data['b2cs'])
+                b2cs_samt = sum(rec.get('samt', 0) for rec in data['b2cs'])
+                if b2cs_txval != 0:
                     rows.append({
                         'type': 'B2C-Small', 'no': '', 'dt': '', 
-                        'txval': rec.get('txval', 0), 'iamt': rec.get('iamt', 0), 
-                        'camt': rec.get('camt', 0), 'samt': rec.get('samt', 0),
+                        'txval': b2cs_txval, 'iamt': b2cs_iamt, 
+                        'camt': b2cs_camt, 'samt': b2cs_samt,
                         'doc_type': 'Invoice/Bill of Entry'
                     })
         except: continue
