@@ -79,7 +79,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_guide, tab1, tab2, tab3, tab_s1a = st.tabs(["≡ƒôû User Guide", "≡ƒôü Data Upload", "ΓÜÖ∩╕Å Refund Calculator", "≡ƒôä Official Statement 1", "Statement 1A Excel"])
+tab_guide, tab1, tab2, tab3, tab_s1a = st.tabs(["📖 User Guide", "📤 Data Upload", "📊 Refund Calculator", "📑 Official Statement 1", "📋 Statement 1A Excel"])
 
 with tab_guide:
     try:
@@ -812,10 +812,10 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
     except Exception as e: return None, str(e)
 
 with tab_s1a:
-    st.header("≡ƒôÑ Statement 1A Automation Utility")
+    st.header("📋 Statement 1A Automation Utility")
     st.write("Automatically populate the official **Statement 1A XLSM Offline Tool** using your uploaded data.")
     
-    with st.expander("≡ƒô¥ Business Details for Statement 1A", expanded=True):
+    with st.expander("📝 Business Details for Statement 1A", expanded=True):
         c1, c2 = st.columns(2)
         gstin_input = c1.text_input("GSTIN", value=user_gstin if user_gstin != "Unknown" else "", placeholder="Enter GSTIN", key="s1a_gstin_in")
         legal_name_input = c2.text_input("Legal Name", value=user_legal_name if user_legal_name != "Unknown" else "", placeholder="Enter Legal Name", key="s1a_legal_name_in")
@@ -824,7 +824,7 @@ with tab_s1a:
         from_period_input = c3.text_input("From Return Period (mmyyyy)", placeholder="092025", key="s1a_from_p")
         to_period_input = c4.text_input("To Return Period (mmyyyy)", placeholder="092025", key="s1a_to_p")
 
-    if st.button("≡ƒÜÇ Generate & Fill Statement 1A Excel", width="stretch", type="primary", key="s1a_gen_btn"):
+    if st.button("🚀 Generate & Fill Statement 1A Excel", width="stretch", type="primary", key="s1a_gen_btn"):
         if not gstr1_path:
             st.error("Please upload GSTR-1 JSON files first.")
         else:
@@ -842,13 +842,13 @@ with tab_s1a:
                 if err:
                     st.error(f"Engine Error: {err}")
                 else:
-                    st.success("Γ£à Excel Statement 1A Generated Successfully!")
+                    st.success("✅ Excel Statement 1A Generated Successfully!")
                     st.download_button(
-                        label="≡ƒÆ╛ Download Filled Statement 1A (.xlsm)",
+                        label="💾 Download Filled Statement 1A (.xlsm)",
                         data=excel_data,
                         file_name=f"GST_REFUND_S1A_{gstin_input}.xlsm",
                         mime="application/vnd.ms-excel.sheet.macroEnabled.12",
                         width="stretch",
                         key="s1a_download_btn"
                     )
-                    st.info("≡ƒÆí Note: This file contains all buttons and macros. Click 'Enable Content' in Microsoft Excel to use them.")
+                    st.info("💡 Note: This file contains all buttons and macros. Click 'Enable Content' in Microsoft Excel to use them.")
