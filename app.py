@@ -652,6 +652,15 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
                         camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', []))
                         samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', []))
                         rows.append({'type': 'B2B', 'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'doc_type': doc_str})
+            if 'b2cs' in data:
+                for rec in data['b2cs']:
+                    # B2CS is summarized, but we report it as B2C-Small in Stmt 1A
+                    rows.append({
+                        'type': 'B2C-Small', 'no': '', 'dt': '', 
+                        'txval': rec.get('txval', 0), 'iamt': rec.get('iamt', 0), 
+                        'camt': rec.get('camt', 0), 'samt': rec.get('samt', 0),
+                        'doc_type': 'Invoice/Bill of Entry'
+                    })
         except: continue
     return rows
 
