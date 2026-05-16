@@ -644,17 +644,16 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
             if 'cdnr' in data:
                 for company in data['cdnr']:
                     for nt in company.get('nt', []):
-                        nt_type = nt.get('ntty', 'C')
-                        mult = -1 if nt_type == 'C' else 1
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in nt.get('itms', [])) * mult
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in nt.get('itms', [])) * mult
-                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', [])) * mult
-                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', [])) * mult
+                        # USER REQUEST: No signs for CDNR (keep positive)
+                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in nt.get('itms', []))
+                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in nt.get('itms', []))
+                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', []))
+                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', []))
                         rows.append({'type': 'B2B', 'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt})
         except: continue
     return rows
 
-def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, period):
+def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, from_period, to_period):
     import openpyxl, zipfile, io, os
     TEMPLATE = "GST_REFUND_S01A.xlsm"
     if not os.path.exists(TEMPLATE): return None, "Template not found."
@@ -671,9 +670,10 @@ def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, period):
         
         ws = wb["RFD_STMT01A"]
         
-        # Headers
-        ws["C4"] = gstin
-        ws["C6"] = period
+        # Headers (User requested BOTH periods)
+        ws["C4"] = str(gstin)
+        ws["C5"] = str(from_period)
+        ws["C6"] = str(to_period)
         
         # Fill Inward Data
         for i, row in enumerate(inward_rows):
@@ -682,18 +682,22 @@ def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, period):
             def gv(keys, default=0):
                 for k in keys:
                     m = next((col for col in row if k.lower() in str(col).lower()), None)
-                    if m: return row[m]
+                    if m: 
+                        try: return float(row[m])
+                        except: return row[m]
                 return default
+            
             ws.cell(row=r, column=1, value=i+1)
             ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
             ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
             ws.cell(row=r, column=4, value="Invoice/Bill of Entry")
             ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
             ws.cell(row=r, column=6, value=str(gv(['date'], "")))
-            ws.cell(row=r, column=8, value=float(gv(['Taxable'], 0)))
-            ws.cell(row=r, column=9, value=float(gv(['Integrated', 'IGST'], 0)))
-            ws.cell(row=r, column=10, value=float(gv(['Central', 'CGST'], 0)))
-            ws.cell(row=r, column=11, value=float(gv(['State', 'SGST'], 0)))
+            # USER REQUEST: Explicitly round to 2 digits and ensure zeros are written
+            ws.cell(row=r, column=8, value=round(float(gv(['Taxable'], 0)), 2))
+            ws.cell(row=r, column=9, value=round(float(gv(['Integrated', 'IGST'], 0)), 2))
+            ws.cell(row=r, column=10, value=round(float(gv(['Central', 'CGST'], 0)), 2))
+            ws.cell(row=r, column=11, value=round(float(gv(['State', 'SGST'], 0)), 2))
 
         # Fill Outward Data
         for i, orow in enumerate(outward_rows):
@@ -703,10 +707,10 @@ def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, period):
             ws.cell(row=r, column=13, value="Invoice")
             ws.cell(row=r, column=14, value=str(orow['no']))
             ws.cell(row=r, column=15, value=str(orow['dt']))
-            ws.cell(row=r, column=16, value=float(orow['txval']))
-            ws.cell(row=r, column=17, value=float(orow['iamt']))
-            ws.cell(row=r, column=18, value=float(orow['camt']))
-            ws.cell(row=r, column=19, value=float(orow['samt']))
+            ws.cell(row=r, column=16, value=round(float(orow['txval']), 2))
+            ws.cell(row=r, column=17, value=round(float(orow['iamt']), 2))
+            ws.cell(row=r, column=18, value=round(float(orow['camt']), 2))
+            ws.cell(row=r, column=19, value=round(float(orow['samt']), 2))
 
         tmp_buffer = io.BytesIO()
         wb.save(tmp_buffer)
@@ -745,8 +749,9 @@ with tab_s1a:
         gstin_input = c1.text_input("GSTIN", value=user_gstin if user_gstin != "Unknown" else "", placeholder="Enter GSTIN", key="s1a_gstin_in")
         legal_name_input = c2.text_input("Legal Name", value=user_legal_name if user_legal_name != "Unknown" else "", placeholder="Enter Legal Name", key="s1a_legal_name_in")
         
-        c3 = st.columns(1)[0]
-        period_input = c3.text_input("Return Period (mmyyyy)", placeholder="092025", key="s1a_period_p")
+        c3, c4 = st.columns(2)
+        from_period_input = c3.text_input("From Return Period (mmyyyy)", placeholder="092025", key="s1a_from_p")
+        to_period_input = c4.text_input("To Return Period (mmyyyy)", placeholder="092025", key="s1a_to_p")
 
     if st.button("🚀 Generate & Fill Statement 1A Excel", width="stretch", type="primary", key="s1a_gen_btn"):
         if not gstr1_path:
@@ -758,7 +763,7 @@ with tab_s1a:
                     f.seek(0)
                     gstr1_data_list.append(json.load(f))
                 
-                excel_data, err = generate_s1a_hybrid_ultra(b2b_df, gstr1_data_list, gstin_input, period_input)
+                excel_data, err = generate_s1a_hybrid_ultra(b2b_df, gstr1_data_list, gstin_input, from_period_input, to_period_input)
                 
                 if err:
                     st.error(f"Engine Error: {err}")
