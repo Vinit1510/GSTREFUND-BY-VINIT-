@@ -225,7 +225,7 @@ with tab2:
                     )
                 },
                 hide_index=True,
-                use_container_width=True
+                width="stretch"
             )
             
             unique_invoices['Type of ITC'] = edited_invoices['Type of ITC']
@@ -265,7 +265,7 @@ with tab2:
                     edited_notes = st.data_editor(
                         unique_notes.drop(columns=['ID']),
                         column_config={"Type of ITC": st.column_config.SelectboxColumn("Type of ITC", options=["Input Goods", "Input Services", "Capital Goods"], required=True)},
-                        hide_index=True, use_container_width=True
+                        hide_index=True, width="stretch"
                     )
                     
                     unique_notes['Type of ITC'] = edited_notes['Type of ITC']
@@ -343,7 +343,7 @@ with tab2:
     if not sales_df.empty:
         rate_summary = sales_df.groupby('Rate').agg({'Taxable Value': 'sum', 'Tax': 'sum'}).reset_index()
         st.subheader("Rate-Wise Outward Supplies")
-        st.dataframe(rate_summary.style.format({'Taxable Value': '{:,.2f}', 'Tax': '{:,.2f}'}), use_container_width=True)
+        st.dataframe(rate_summary.style.format({'Taxable Value': '{:,.2f}', 'Tax': '{:,.2f}'}), width="stretch")
         
         st.subheader("Inverted Rated Supply (IRS) Identification")
         available_rates = sorted(rate_summary['Rate'].unique().tolist())
@@ -553,7 +553,7 @@ with tab3:
         
         # 1. HTML as XLS (Excel will open this flawlessly matching the UI)
         html_for_excel = f"<html xmlns:x=\"urn:schemas-microsoft-com:office:excel\"><head><meta charset=\"UTF-8\"><style>body {{ font-family: Arial, sans-serif; }}</style></head><body>{html_report}</body></html>"
-        colA.download_button("📊 Download as Excel (Formatted)", data=html_for_excel.encode('utf-8'), file_name=f"{file_name_prefix}.xls", mime="application/vnd.ms-excel", use_container_width=True)
+        colA.download_button("📊 Download as Excel (Formatted)", data=html_for_excel.encode('utf-8'), file_name=f"{file_name_prefix}.xls", mime="application/vnd.ms-excel", width="stretch")
 
         # 2. Real PDF Generation
         pdf_buffer = io.BytesIO()
@@ -581,7 +581,7 @@ with tab3:
         pisa.CreatePDF(io.StringIO(pdf_html), dest=pdf_buffer)
         pdf_data = pdf_buffer.getvalue()
         
-        colB.download_button("🖨️ Download Actual PDF File", data=pdf_data, file_name=f"{file_name_prefix}.pdf", mime="application/pdf", use_container_width=True)
+        colB.download_button("🖨️ Download Actual PDF File", data=pdf_data, file_name=f"{file_name_prefix}.pdf", mime="application/pdf", width="stretch")
 
         # Render the Report Visual
         st.markdown("<br>", unsafe_allow_html=True)
@@ -726,14 +726,14 @@ with tab_s1a:
     
     with st.expander("📝 Business Details for Statement 1A", expanded=True):
         c1, c2 = st.columns(2)
-        gstin_input = c1.text_input("GSTIN", value=user_gstin if user_gstin != "Unknown" else "", placeholder="Enter GSTIN")
-        legal_name_input = c2.text_input("Legal Name", value=user_legal_name if user_legal_name != "Unknown" else "", placeholder="Enter Legal Name")
+        gstin_input = c1.text_input("GSTIN", value=user_gstin if user_gstin != "Unknown" else "", placeholder="Enter GSTIN", key="s1a_gstin_in")
+        legal_name_input = c2.text_input("Legal Name", value=user_legal_name if user_legal_name != "Unknown" else "", placeholder="Enter Legal Name", key="s1a_legal_name_in")
         
         c3, c4 = st.columns(2)
-        from_period = c3.text_input("From Period (mmyyyy)", placeholder="042024")
-        to_period = c4.text_input("To Period (mmyyyy)", placeholder="032025")
+        from_period = c3.text_input("From Period (mmyyyy)", placeholder="042024", key="s1a_from_p")
+        to_period = c4.text_input("To Period (mmyyyy)", placeholder="032025", key="s1a_to_p")
 
-    if st.button("🚀 Generate & Fill Statement 1A Excel", use_container_width=True, type="primary"):
+    if st.button("🚀 Generate & Fill Statement 1A Excel", width="stretch", type="primary", key="s1a_gen_btn"):
         if not gstr1_path:
             st.error("Please upload GSTR-1 JSON files first.")
         else:
@@ -754,7 +754,8 @@ with tab_s1a:
                         data=excel_data,
                         file_name=f"GST_REFUND_S1A_{gstin_input}.xlsm",
                         mime="application/vnd.ms-excel.sheet.macroEnabled.12",
-                        use_container_width=True
+                        width="stretch",
+                        key="s1a_download_btn"
                     )
                     st.info("💡 Note: All buttons and macros are 100% preserved in this XLSM file.")
 
