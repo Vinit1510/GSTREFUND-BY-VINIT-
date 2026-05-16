@@ -769,29 +769,39 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
                     
                     for item in zfill.infolist():
                         content = zfill.read(item.filename)
+                        
+                        # 1. Surgical XML Stitching for sheet2.xml
                         if "xl/worksheets/sheet2.xml" in item.filename:
                             xml = content.decode('utf-8')
                             
-                            # FIX: Add missing namespace declaration
+                            # FIX: Declare namespaces explicitly
                             if 'xmlns:r=' not in xml:
                                 xml = xml.replace('<worksheet', '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"', 1)
                             
-                            # Re-inject Dropdowns (Data Validations)
+                            # Wipe existing broken tags
+                            xml = re.sub(r'<dataValidations.*?</dataValidations>', '', xml, flags=re.DOTALL)
+                            xml = re.sub(r'<(?:legacy)?drawing r:id="rId[^>]*/>', '', xml)
+                            
+                            # Re-inject original Dropdowns
                             if dv_tags:
-                                # Remove any partial/broken validations openpyxl might have added
-                                xml = re.sub(r'<dataValidations.*?</dataValidations>', '', xml, flags=re.DOTALL)
                                 xml = xml.replace('</worksheet>', dv_tags[0] + '</worksheet>')
 
-                            # Re-inject Buttons (Drawings)
+                            # Re-inject original Buttons (Drawing links)
                             if draw_tags:
                                 xml = xml.replace('</worksheet>', "".join(draw_tags) + '</worksheet>')
                             
                             content = xml.encode('utf-8')
+                        
+                        # 2. FORCE TRANSPLANT original Relationship and Drawing files
+                        if "xl/worksheets/_rels/sheet2.xml.rels" in item.filename:
+                            # Use original relationship mapping to ensure rIds for buttons match
+                            content = zorig.read("xl/worksheets/_rels/sheet2.xml.rels")
+                        
                         zout.writestr(item, content)
                     
-                    # Force transplant original rels and drawings
+                    # Ensure all support files (drawings, VML, control properties) are present
                     for item in zorig.infolist():
-                        if "xl/drawings/" in item.filename or "xl/worksheets/_rels/sheet2.xml.rels" in item.filename:
+                        if any(x in item.filename for x in ["xl/drawings/", "xl/ctrlProps/", "xl/vmlDrawing"]):
                             if item.filename not in zout.namelist():
                                 zout.writestr(item, zorig.read(item.filename))
         return final_buf.getvalue(), None
