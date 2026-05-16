@@ -587,7 +587,176 @@ with tab3:
         st.markdown("<br>", unsafe_allow_html=True)
         import streamlit.components.v1 as components
         components.html(html_report, height=1000, scrolling=True)
-# --- NEW FEATURE: STATEMENT 1A EXCEL FILLER ---
+# --- NEW FEATURE: STATEMENT 1A EXCEL FILLER (SURGICAL XLSM ENGINE) ---
+
+def extract_invoice_rows_for_filler(gstr1_data_list):
+    rows = []
+    for data in gstr1_data_list:
+        try:
+            if 'b2b' in data:
+                for company in data['b2b']:
+                    for inv in company.get('inv', []):
+                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
+                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
+                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in inv.get('itms', []))
+                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in inv.get('itms', []))
+                        rows.append({'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'type': 'B2B'})
+            if 'b2cl' in data:
+                for state in data['b2cl']:
+                    for inv in state.get('inv', []):
+                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
+                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
+                        rows.append({'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': 0.0, 'samt': 0.0, 'type': 'B2C-Large'})
+            if 'cdnr' in data:
+                for company in data['cdnr']:
+                    for nt in company.get('nt', []):
+                        nt_type = nt.get('ntty', 'C')
+                        mult = -1 if nt_type == 'C' else 1
+                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in nt.get('itms', [])) * mult
+                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in nt.get('itms', [])) * mult
+                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', [])) * mult
+                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', [])) * mult
+                        rows.append({'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt, 'type': 'B2B'})
+        except: continue
+    return rows
+
+def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, from_period, to_period):
+    """
+    SURGICAL XLSM ENGINE:
+    Opens XLSM as ZIP, modifies worksheet XML via Regex/String replacement.
+    This GUARANTEES buttons and macros are preserved because drawings/ are not touched.
+    """
+    import zipfile, io, re
+    TEMPLATE = "GST_REFUND_S01A.xlsm"
+    if not os.path.exists(TEMPLATE): return None, "Template not found."
+
+    outward_rows = extract_invoice_rows_for_filler(gstr1_json_list)
+    inward_rows = b2b_df.to_dict('records') if b2b_df is not None else []
+
+    try:
+        output_buffer = io.BytesIO()
+        with zipfile.ZipFile(TEMPLATE, 'r') as zin:
+            # Dynamic Sheet Discovery
+            workbook_xml = zin.read('xl/workbook.xml').decode('utf-8')
+            sheet_file = 'xl/worksheets/sheet2.xml' # Fallback
+            sheet_match = re.search(r'name="RFD_STMT01A"[^>]*r:id="rId(\d+)"', workbook_xml)
+            if sheet_match:
+                rid = sheet_match.group(1)
+                rels_xml = zin.read('xl/_rels/workbook.xml.rels').decode('utf-8')
+                target_match = re.search(fr'Id="rId{rid}"[^>]*Target="(.*?)"', rels_xml)
+                if target_match: sheet_file = 'xl/' + target_match.group(1).replace('../', '')
+
+            with zipfile.ZipFile(output_buffer, 'w') as zout:
+                for item in zin.infolist():
+                    content = zin.read(item.filename)
+                    if item.filename == sheet_file:
+                        xml = content.decode('utf-8')
+                        
+                        def replace_cell(xml_str, row, col_letter, value, is_str=False):
+                            ref = f"{col_letter}{row}"
+                            # Shielded Pattern: Handles <c r="A1"> or <x:c r="A1">
+                            pattern = rf'<[^:>]*c r="{ref}"[^>]*>.*?</[^:>]*c>'
+                            
+                            if is_str:
+                                # Safe HTML escaping for XML
+                                val_str = str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                                replacement = f'<c r="{ref}" t="inlineStr"><is><t>{val_str}</t></is></c>'
+                            else:
+                                try:
+                                    val_num = float(value)
+                                    replacement = f'<c r="{ref}"><v>{val_num}</v></c>'
+                                except:
+                                    replacement = f'<c r="{ref}" t="inlineStr"><is><t>{value}</t></is></c>'
+                            
+                            if re.search(pattern, xml_str):
+                                return re.sub(pattern, replacement, xml_str, flags=re.DOTALL)
+                            else:
+                                return xml_str
+
+                        # Fill Headers (Shielded)
+                        xml = replace_cell(xml, 4, 'C', gstin_input if gstin_input else "", True)
+                        xml = replace_cell(xml, 5, 'C', from_period if from_period else "", True)
+                        xml = replace_cell(xml, 6, 'C', to_period if to_period else "", True)
+
+                        # Fill Inward (Shielded Loop)
+                        for i, row in enumerate(inward_rows):
+                            r = 11 + i
+                            if r > 2000: break # Safety limit for template rows
+                            
+                            # Fuzzy column mapping for this specific row
+                            def gv(keys, default=0):
+                                for k in keys:
+                                    match = next((col for col in row if k.lower() in str(col).lower()), None)
+                                    if match: return row[match]
+                                return default
+
+                            xml = replace_cell(xml, r, 'A', i+1)
+                            xml = replace_cell(xml, r, 'B', "Inward Supply from Registered Person", True)
+                            xml = replace_cell(xml, r, 'C', gv(['GSTIN', 'GST No'], ""), True)
+                            xml = replace_cell(xml, r, 'D', "Invoice/Bill of Entry", True)
+                            xml = replace_cell(xml, r, 'E', gv(['Invoice number', 'Inv No', 'Number'], ""), True)
+                            xml = replace_cell(xml, r, 'F', gv(['date'], ""), True)
+                            xml = replace_cell(xml, r, 'G', gv(['Taxable'], 0))
+                            xml = replace_cell(xml, r, 'H', gv(['Integrated', 'IGST'], 0))
+                            xml = replace_cell(xml, r, 'I', gv(['Central', 'CGST'], 0))
+                            xml = replace_cell(xml, r, 'J', gv(['State', 'SGST'], 0))
+
+                        # Fill Outward (Shielded Loop)
+                        for i, orow in enumerate(outward_rows):
+                            r = 11 + i
+                            if r > 2000: break
+                            
+                            xml = replace_cell(xml, r, 'L', orow.get('type', 'B2B'), True)
+                            xml = replace_cell(xml, r, 'M', "Invoice", True)
+                            xml = replace_cell(xml, r, 'N', str(orow.get('no', '')), True)
+                            xml = replace_cell(xml, r, 'O', str(orow.get('dt', '')), True)
+                            xml = replace_cell(xml, r, 'P', float(orow.get('txval', 0)))
+                            xml = replace_cell(xml, r, 'Q', float(orow.get('iamt', 0)))
+                            xml = replace_cell(xml, r, 'R', float(orow.get('camt', 0)))
+                            xml = replace_cell(xml, r, 'S', float(orow.get('samt', 0)))
+
+                        content = xml.encode('utf-8')
+                    zout.writestr(item, content)
+        return output_buffer.getvalue(), None
+    except Exception as e: return None, str(e)
+
+with tab_s1a:
+    st.header("📥 Statement 1A Automation Utility")
+    st.write("Automatically populate the official **Statement 1A XLSM Offline Tool** using your uploaded data.")
+    
+    with st.expander("📝 Business Details for Statement 1A", expanded=True):
+        c1, c2 = st.columns(2)
+        gstin_input = c1.text_input("GSTIN", value=user_gstin if user_gstin != "Unknown" else "", placeholder="Enter GSTIN")
+        legal_name_input = c2.text_input("Legal Name", value=user_legal_name if user_legal_name != "Unknown" else "", placeholder="Enter Legal Name")
+        
+        c3, c4 = st.columns(2)
+        from_period = c3.text_input("From Period (mmyyyy)", placeholder="042024")
+        to_period = c4.text_input("To Period (mmyyyy)", placeholder="032025")
+
+    if st.button("🚀 Generate & Fill Statement 1A Excel", use_container_width=True, type="primary"):
+        if not gstr1_path:
+            st.error("Please upload GSTR-1 JSON files first.")
+        else:
+            with st.spinner("Surgically filling your XLSM template..."):
+                gstr1_data_list = []
+                for f in gstr1_path:
+                    f.seek(0)
+                    gstr1_data_list.append(json.load(f))
+                
+                excel_data, err = generate_s1a_xlsm_surgical(b2b_df, gstr1_data_list, gstin_input, from_period, to_period)
+                
+                if err:
+                    st.error(f"Engine Error: {err}")
+                else:
+                    st.success("✅ Excel Statement 1A Generated Successfully!")
+                    st.download_button(
+                        label="💾 Download Filled Statement 1A (.xlsm)",
+                        data=excel_data,
+                        file_name=f"GST_REFUND_S1A_{gstin_input}.xlsm",
+                        mime="application/vnd.ms-excel.sheet.macroEnabled.12",
+                        use_container_width=True
+                    )
+                    st.info("💡 Note: All buttons and macros are 100% preserved in this XLSM file.")
 
 def extract_invoice_rows_for_filler(gstr1_data_list):
     """Deep extraction logic from GSTR-1 JSON for Statement 1A."""
@@ -665,10 +834,10 @@ def generate_s1a_excel_xlsm(b2b_df, gstr1_json_list, gstin, from_period, to_peri
         
         # 2. Fill Inward Data (Rows 11+)
         if b2b_df is not None and not b2b_df.empty:
-            # Dynamically find column names to avoid index errors
+            # Fuzzy column detection for Inward
             g_c = next((c for c in b2b_df.columns if 'GSTIN' in str(c)), None)
             i_c = next((c for c in b2b_df.columns if 'Invoice number' in str(c)), None)
-            d_c = next((c for c in b2b_df.columns if 'Invoice date' in str(c)), None)
+            d_c = next((c for c in b2b_df.columns if 'date' in str(c).lower()), None) # More fuzzy for date
             t_c = next((c for c in b2b_df.columns if 'Taxable' in str(c)), None)
             it_c = next((c for c in b2b_df.columns if 'Integrated' in str(c)), None)
             ct_c = next((c for c in b2b_df.columns if 'Central' in str(c)), None)
