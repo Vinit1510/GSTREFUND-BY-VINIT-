@@ -673,10 +673,24 @@ def generate_s1a_master_surgeon(b2b_df, gstr1_json_list, gstin, from_period, to_
     if not os.path.exists(TEMPLATE): return None, "Template not found."
 
     outward_rows = extract_invoice_rows_for_filler(gstr1_json_list)
-    if b2b_df is not None and 'Categorization' in b2b_df.columns:
-        inward_rows = b2b_df[b2b_df['Categorization'] == 'Input Goods'].to_dict('records')
+    # 1. Force Categorization for Inward Filtering
+    if b2b_df is not None:
+        temp_df = b2b_df.copy()
+        if 'Categorization' not in temp_df.columns:
+            # Re-run categorization logic if not present
+            temp_df['Categorization'] = 'Input Services' # Default
+            goods_keywords = ['GOODS', 'ITEM', 'PCS', 'NOS', 'QTY', 'UNIT']
+            def categorize(row):
+                desc = str(row.get('Item Description', '')).upper()
+                uqc = str(row.get('UQC', '')).upper()
+                if any(k in desc for k in goods_keywords) or any(k in uqc for k in goods_keywords):
+                    return 'Input Goods'
+                return 'Input Services'
+            temp_df['Categorization'] = temp_df.apply(categorize, axis=1)
+        
+        inward_rows = temp_df[temp_df['Categorization'] == 'Input Goods'].to_dict('records')
     else:
-        inward_rows = b2b_df.to_dict('records') if b2b_df is not None else []
+        inward_rows = []
 
     try:
         # 1. Fill data using Openpyxl (Handles cell creation and types perfectly)
