@@ -664,53 +664,57 @@ def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, from_period, to_pe
     try:
         # 1. Fill data using Openpyxl (Perfect XML, but it usually drops buttons)
         wb = openpyxl.load_workbook(TEMPLATE, keep_vba=True)
-        # Find sheet by name
         if "RFD_STMT01A" not in wb.sheetnames:
             return None, "Sheet 'RFD_STMT01A' not found in template."
-        
         ws = wb["RFD_STMT01A"]
         
-        # Headers (User requested BOTH periods)
+        # Headers
         ws["C4"] = str(gstin)
         ws["C5"] = str(from_period)
         ws["C6"] = str(to_period)
         
-        # Fill Inward Data
-        for i, row in enumerate(inward_rows):
+        max_len = max(len(inward_rows), len(outward_rows))
+        
+        # Unified Loop for all data
+        for i in range(max_len):
             r = 11 + i
-            if r > 5000: break
-            def gv(keys, default=0):
-                for k in keys:
-                    m = next((col for col in row if k.lower() in str(col).lower()), None)
-                    if m: 
-                        try: return float(row[m])
-                        except: return row[m]
-                return default
+            if r > 10000: break # Template limit
             
+            # Always write Serial Number if there is data in this row
             ws.cell(row=r, column=1, value=i+1)
-            ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
-            ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
-            ws.cell(row=r, column=4, value="Invoice/Bill of Entry")
-            ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
-            ws.cell(row=r, column=6, value=str(gv(['date'], "")))
-            # USER REQUEST: Explicitly round to 2 digits and ensure zeros are written
-            ws.cell(row=r, column=8, value=round(float(gv(['Taxable'], 0)), 2))
-            ws.cell(row=r, column=9, value=round(float(gv(['Integrated', 'IGST'], 0)), 2))
-            ws.cell(row=r, column=10, value=round(float(gv(['Central', 'CGST'], 0)), 2))
-            ws.cell(row=r, column=11, value=round(float(gv(['State', 'SGST'], 0)), 2))
-
-        # Fill Outward Data
-        for i, orow in enumerate(outward_rows):
-            r = 11 + i
-            if r > 5000: break
-            ws.cell(row=r, column=12, value=orow['type'])
-            ws.cell(row=r, column=13, value="Invoice")
-            ws.cell(row=r, column=14, value=str(orow['no']))
-            ws.cell(row=r, column=15, value=str(orow['dt']))
-            ws.cell(row=r, column=16, value=round(float(orow['txval']), 2))
-            ws.cell(row=r, column=17, value=round(float(orow['iamt']), 2))
-            ws.cell(row=r, column=18, value=round(float(orow['camt']), 2))
-            ws.cell(row=r, column=19, value=round(float(orow['samt']), 2))
+            
+            # --- INWARD SECTION (A-K) ---
+            if i < len(inward_rows):
+                row = inward_rows[i]
+                def gv(keys, default=0):
+                    for k in keys:
+                        m = next((col for col in row if k.lower() in str(col).lower()), None)
+                        if m: 
+                            try: return float(row[m])
+                            except: return row[m]
+                    return default
+                
+                ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
+                ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
+                ws.cell(row=r, column=4, value="Invoice/Bill of Entry")
+                ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
+                ws.cell(row=r, column=6, value=str(gv(['date'], "")))
+                ws.cell(row=r, column=8, value=round(float(gv(['Taxable'], 0)), 2))
+                ws.cell(row=r, column=9, value=round(float(gv(['Integrated', 'IGST'], 0)), 2))
+                ws.cell(row=r, column=10, value=round(float(gv(['Central', 'CGST'], 0)), 2))
+                ws.cell(row=r, column=11, value=round(float(gv(['State', 'SGST'], 0)), 2))
+            
+            # --- OUTWARD SECTION (L-S) ---
+            if i < len(outward_rows):
+                orow = outward_rows[i]
+                ws.cell(row=r, column=12, value=orow['type'])
+                ws.cell(row=r, column=13, value="Invoice")
+                ws.cell(row=r, column=14, value=str(orow['no']))
+                ws.cell(row=r, column=15, value=str(orow['dt']))
+                ws.cell(row=r, column=16, value=round(float(orow['txval']), 2))
+                ws.cell(row=r, column=17, value=round(float(orow['iamt']), 2))
+                ws.cell(row=r, column=18, value=round(float(orow['camt']), 2))
+                ws.cell(row=r, column=19, value=round(float(orow['samt']), 2))
 
         tmp_buffer = io.BytesIO()
         wb.save(tmp_buffer)
