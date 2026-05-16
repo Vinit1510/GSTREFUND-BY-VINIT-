@@ -79,7 +79,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_guide, tab1, tab2, tab3, tab_s1a = st.tabs(["📖 User Guide", "📤 Data Upload", "📊 Refund Calculator", "📑 Official Statement 1", "📋 Statement 1A Excel"])
+tab_guide, tab1, tab2, tab3, tab_s1a = st.tabs(["📖 Guide", "📤 Upload", "📊 Calculator", "📑 Statement 1", "📋 Statement 1A"])
 
 with tab_guide:
     try:
@@ -703,9 +703,10 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
             return None, "Sheet 'RFD_STMT01A' not found."
         ws = wb["RFD_STMT01A"]
         
-        # UNLOCK PROTECTION: Allow user to edit everything
-        ws.protection.sheet = False
-        ws.protection.disable()
+        # UNLOCK ALL SHEETS: Completely remove protection from the entire workbook
+        for sheet_name in wb.sheetnames:
+            wb[sheet_name].protection.sheet = False
+            wb[sheet_name].protection.disable()
         wb.security.lockStructure = False
         
         ws["C4"] = str(gstin)
