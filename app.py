@@ -620,13 +620,42 @@ def extract_invoice_rows_for_filler(gstr1_data_list):
         except: continue
     return rows
 
-def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, period):
-    """
-    SURGICAL XLSM ENGINE:
-    Opens XLSM as ZIP, modifies worksheet XML via Regex/String replacement.
-    This GUARANTEES buttons and macros are preserved because drawings/ are not touched.
-    """
-    import zipfile, io, re
+# --- NEW FEATURE: STATEMENT 1A EXCEL FILLER (HYBRID ULTRA ENGINE) ---
+
+def extract_invoice_rows_for_filler(gstr1_data_list):
+    """Deep extraction logic from GSTR-1 JSON for Statement 1A."""
+    rows = []
+    for data in gstr1_data_list:
+        try:
+            if 'b2b' in data:
+                for company in data['b2b']:
+                    for inv in company.get('inv', []):
+                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
+                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
+                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in inv.get('itms', []))
+                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in inv.get('itms', []))
+                        rows.append({'type': 'B2B', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt})
+            if 'b2cl' in data:
+                for state in data['b2cl']:
+                    for inv in state.get('inv', []):
+                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
+                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
+                        rows.append({'type': 'B2C-Large', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''), 'txval': txval, 'iamt': iamt, 'camt': 0.0, 'samt': 0.0})
+            if 'cdnr' in data:
+                for company in data['cdnr']:
+                    for nt in company.get('nt', []):
+                        nt_type = nt.get('ntty', 'C')
+                        mult = -1 if nt_type == 'C' else 1
+                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in nt.get('itms', [])) * mult
+                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in nt.get('itms', [])) * mult
+                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', [])) * mult
+                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', [])) * mult
+                        rows.append({'type': 'B2B', 'no': nt.get('nt_num', '') or nt.get('ntnum', ''), 'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''), 'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt})
+        except: continue
+    return rows
+
+def generate_s1a_hybrid_ultra(b2b_df, gstr1_json_list, gstin, period):
+    import openpyxl, zipfile, io, os
     TEMPLATE = "GST_REFUND_S01A.xlsm"
     if not os.path.exists(TEMPLATE): return None, "Template not found."
 
@@ -634,103 +663,77 @@ def generate_s1a_xlsm_surgical(b2b_df, gstr1_json_list, gstin, period):
     inward_rows = b2b_df.to_dict('records') if b2b_df is not None else []
 
     try:
-        output_buffer = io.BytesIO()
-        with zipfile.ZipFile(TEMPLATE, 'r') as zin:
-            # Dynamic Sheet Discovery
-            workbook_xml = zin.read('xl/workbook.xml').decode('utf-8')
-            sheet_file = 'xl/worksheets/sheet2.xml' # Fallback
-            sheet_match = re.search(r'name="RFD_STMT01A"[^>]*r:id="rId(\d+)"', workbook_xml)
-            if sheet_match:
-                rid = sheet_match.group(1)
-                rels_xml = zin.read('xl/_rels/workbook.xml.rels').decode('utf-8')
-                target_match = re.search(fr'Id="rId{rid}"[^>]*Target="(.*?)"', rels_xml)
-                if target_match: sheet_file = 'xl/' + target_match.group(1).replace('../', '')
+        # 1. Fill data using Openpyxl (Perfect XML, but it usually drops buttons)
+        wb = openpyxl.load_workbook(TEMPLATE, keep_vba=True)
+        # Find sheet by name
+        if "RFD_STMT01A" not in wb.sheetnames:
+            return None, "Sheet 'RFD_STMT01A' not found in template."
+        
+        ws = wb["RFD_STMT01A"]
+        
+        # Headers
+        ws["C4"] = gstin
+        ws["C6"] = period
+        
+        # Fill Inward Data
+        for i, row in enumerate(inward_rows):
+            r = 11 + i
+            if r > 5000: break
+            def gv(keys, default=0):
+                for k in keys:
+                    m = next((col for col in row if k.lower() in str(col).lower()), None)
+                    if m: return row[m]
+                return default
+            ws.cell(row=r, column=1, value=i+1)
+            ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
+            ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
+            ws.cell(row=r, column=4, value="Invoice/Bill of Entry")
+            ws.cell(row=r, column=5, value=str(gv(['Invoice number', 'Inv No', 'Number'], "")))
+            ws.cell(row=r, column=6, value=str(gv(['date'], "")))
+            ws.cell(row=r, column=8, value=float(gv(['Taxable'], 0)))
+            ws.cell(row=r, column=9, value=float(gv(['Integrated', 'IGST'], 0)))
+            ws.cell(row=r, column=10, value=float(gv(['Central', 'CGST'], 0)))
+            ws.cell(row=r, column=11, value=float(gv(['State', 'SGST'], 0)))
 
-            with zipfile.ZipFile(output_buffer, 'w') as zout:
-                for item in zin.infolist():
-                    content = zin.read(item.filename)
-                    if item.filename == sheet_file:
-                        xml = content.decode('utf-8')
-                        
-                        # --- HIGH-SPEED PASS: Map cells to their values ---
-                        cell_updates = {}
-                        def add_upd(r, c_let, val, is_s=False):
-                            v_esc = str(val).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                            if is_s: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
-                            else:
-                                try: cell_updates[f"{c_let}{r}"] = f'><v>{float(val)}</v>'
-                                except: cell_updates[f"{c_let}{r}"] = f' t="inlineStr"><is><t>{v_esc}</t></is>'
+        # Fill Outward Data
+        for i, orow in enumerate(outward_rows):
+            r = 11 + i
+            if r > 5000: break
+            ws.cell(row=r, column=12, value=orow['type'])
+            ws.cell(row=r, column=13, value="Invoice")
+            ws.cell(row=r, column=14, value=str(orow['no']))
+            ws.cell(row=r, column=15, value=str(orow['dt']))
+            ws.cell(row=r, column=16, value=float(orow['txval']))
+            ws.cell(row=r, column=17, value=float(orow['iamt']))
+            ws.cell(row=r, column=18, value=float(orow['camt']))
+            ws.cell(row=r, column=19, value=float(orow['samt']))
 
-                        add_upd(4, 'C', gstin_input, True)
-                        add_upd(6, 'C', period, True) # Period on Row 6
+        tmp_buffer = io.BytesIO()
+        wb.save(tmp_buffer)
+        filled_data = tmp_buffer.getvalue()
 
-                        def gv(r_dict, keys, default=0):
-                            for k in keys:
-                                m = next((col for col in r_dict if k.lower() in str(col).lower()), None)
-                                if m: return r_dict[m]
-                            return default
-
-                        for i, row in enumerate(inward_rows):
-                            r_idx = 11 + i
-                            if r_idx > 2000: break
-                            add_upd(r_idx, 'A', i+1)
-                            add_upd(r_idx, 'B', "Inward Supply from Registered Person", True)
-                            add_upd(r_idx, 'C', gv(row, ['GSTIN', 'GST No'], ""), True)
-                            add_upd(r_idx, 'D', "Invoice/Bill of Entry", True)
-                            add_upd(r_idx, 'E', gv(row, ['Invoice number', 'Inv No', 'Number'], ""), True)
-                            add_upd(r_idx, 'F', gv(row, ['date'], ""), True)
-                            add_upd(r_idx, 'G', "", True) # Port Code
-                            add_upd(r_idx, 'H', gv(row, ['Taxable'], 0))
-                            add_upd(r_idx, 'I', gv(row, ['Integrated', 'IGST'], 0))
-                            add_upd(r_idx, 'J', gv(row, ['Central', 'CGST'], 0))
-                            add_upd(r_idx, 'K', gv(row, ['State', 'SGST'], 0))
-
-                        for i, orow in enumerate(outward_rows):
-                            r_idx = 11 + i
-                            if r_idx > 2000: break
-                            add_upd(r_idx, 'L', orow.get('type', 'B2B'), True)
-                            add_upd(r_idx, 'M', "Invoice", True)
-                            add_upd(r_idx, 'N', orow.get('no', ''), True)
-                            add_upd(r_idx, 'O', orow.get('dt', ''), True)
-                            add_upd(r_idx, 'P', orow.get('txval', 0))
-                            add_upd(r_idx, 'Q', orow.get('iamt', 0))
-                            add_upd(r_idx, 'R', orow.get('camt', 0))
-                            add_upd(r_idx, 'S', orow.get('samt', 0))
-
-                        def sub_func(m):
-                            ref = m.group(2)
-                            tag_prefix = m.group(1)
-                            if ref in cell_updates:
-                                return f'<{tag_prefix}c r="{ref}"{cell_updates[ref]}</{tag_prefix}c>'
-                            return m.group(0)
-
-                        # Matches <c r="A1"...>...</c> or <x:c r="A1"...>...</x:c>
-                        row_pattern = re.compile(r'<([^:>]*?)c r="([A-Z0-9]+)"[^>]*>.*?</\1c>', flags=re.DOTALL)
-                        
-                        def process_row_xml(row_xml):
-                            if ' r="' not in row_xml: return row_xml
-                            return row_pattern.sub(sub_func, row_xml)
-
-                        # Extreme Speed: Split by row to avoid scanning the whole file
-                        parts = xml.split('<row ')
-                        new_parts = [parts[0]]
-                        for p in parts[1:]:
-                            # Extract row index from <row r="11" ...>
-                            r_match = re.search(r'r="(\d+)"', p)
-                            if r_match:
-                                r_num = int(r_match.group(1))
-                                # Only process rows we care about (Headers 4, 6 and Data 11+)
-                                if r_num in [4, 6] or r_num >= 11:
-                                    new_parts.append(process_row_xml(p))
-                                else:
-                                    new_parts.append(p)
-                            else:
-                                new_parts.append(p)
-                        
-                        xml = '<row '.join(new_parts)
-                        content = xml.encode('utf-8')
-                    zout.writestr(item, content)
-        return output_buffer.getvalue(), None
+        # 2. SURGICAL TRANSPLANT: Re-insert buttons and relationships from Template
+        final_buffer = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(filled_data), 'r') as zfilled:
+            with zipfile.ZipFile(TEMPLATE, 'r') as ztemp:
+                with zipfile.ZipFile(final_buffer, 'w') as zout:
+                    # Copy everything from filled file except the relationship file that openpyxl broke
+                    for item in zfilled.infolist():
+                        # Skip relationships for sheet2 (where buttons are)
+                        if "xl/worksheets/_rels/sheet2.xml.rels" in item.filename: continue
+                        zout.writestr(item, zfilled.read(item.filename))
+                    
+                    # Transplant the ORIGINAL relationship file and DRAWINGS from the Template
+                    for item in ztemp.infolist():
+                        if "xl/drawings/" in item.filename or "xl/worksheets/_rels/sheet2.xml.rels" in item.filename:
+                            if item.filename not in zout.namelist():
+                                zout.writestr(item, ztemp.read(item.filename))
+                    
+                    # Ensure vbaProject is there (usually preserved by keep_vba but double check)
+                    if "xl/vbaProject.bin" not in zout.namelist() and "xl/vbaProject.bin" in ztemp.namelist():
+                        zout.writestr("xl/vbaProject.bin", ztemp.read("xl/vbaProject.bin"))
+        
+        return final_buffer.getvalue(), None
     except Exception as e: return None, str(e)
 
 with tab_s1a:
@@ -749,13 +752,13 @@ with tab_s1a:
         if not gstr1_path:
             st.error("Please upload GSTR-1 JSON files first.")
         else:
-            with st.spinner("Surgically filling your XLSM template..."):
+            with st.spinner("Populating template via Hybrid Ultra Engine..."):
                 gstr1_data_list = []
                 for f in gstr1_path:
                     f.seek(0)
                     gstr1_data_list.append(json.load(f))
                 
-                excel_data, err = generate_s1a_xlsm_surgical(b2b_df, gstr1_data_list, gstin_input, period_input)
+                excel_data, err = generate_s1a_hybrid_ultra(b2b_df, gstr1_data_list, gstin_input, period_input)
                 
                 if err:
                     st.error(f"Engine Error: {err}")
@@ -769,54 +772,4 @@ with tab_s1a:
                         width="stretch",
                         key="s1a_download_btn"
                     )
-                    st.info("💡 Note: All buttons and macros are 100% preserved in this XLSM file.")
-
-
-def extract_invoice_rows_for_filler(gstr1_data_list):
-    """Deep extraction logic from GSTR-1 JSON for Statement 1A."""
-    rows = []
-    for data in gstr1_data_list:
-        try:
-            if 'b2b' in data:
-                for company in data['b2b']:
-                    for inv in company.get('inv', []):
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
-                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in inv.get('itms', []))
-                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in inv.get('itms', []))
-                        rows.append({
-                            'type': 'B2B', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''),
-                            'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt
-                        })
-            if 'b2cl' in data:
-                for state in data['b2cl']:
-                    for inv in state.get('inv', []):
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in inv.get('itms', []))
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in inv.get('itms', []))
-                        rows.append({
-                            'type': 'B2C-Large', 'no': inv.get('inum', ''), 'dt': inv.get('idt', ''),
-                            'txval': txval, 'iamt': iamt, 'camt': 0.0, 'samt': 0.0
-                        })
-            if 'b2cs' in data:
-                for rec in data['b2cs']:
-                    rows.append({
-                        'type': 'B2C-Small', 'no': '', 'dt': '',
-                        'txval': rec.get('txval', 0), 'iamt': rec.get('iamt', 0), 
-                        'camt': rec.get('camt', 0), 'samt': rec.get('samt', 0)
-                    })
-            if 'cdnr' in data:
-                for company in data['cdnr']:
-                    for nt in company.get('nt', []):
-                        nt_type = nt.get('ntty', 'C')
-                        mult = -1 if nt_type == 'C' else 1
-                        txval = sum(itm.get('itm_det', {}).get('txval', 0) for itm in nt.get('itms', [])) * mult
-                        iamt = sum(itm.get('itm_det', {}).get('iamt', 0) for itm in nt.get('itms', [])) * mult
-                        camt = sum(itm.get('itm_det', {}).get('camt', 0) for itm in nt.get('itms', [])) * mult
-                        samt = sum(itm.get('itm_det', {}).get('samt', 0) for itm in nt.get('itms', [])) * mult
-                        rows.append({
-                            'type': 'B2B', 'no': nt.get('nt_num', '') or nt.get('ntnum', ''),
-                            'dt': nt.get('nt_dt', '') or nt.get('ntdt', ''),
-                            'txval': txval, 'iamt': iamt, 'camt': camt, 'samt': samt
-                        })
-        except: continue
-    return rows
+                    st.info("💡 Note: This file contains all buttons and macros. Click 'Enable Content' in Microsoft Excel to use them.")
