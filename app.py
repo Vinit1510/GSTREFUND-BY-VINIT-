@@ -720,10 +720,12 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
                         m = next((col for col in row if k.lower() in str(col).lower()), None)
                         if m: return row[m]
                     return default
-                dt = str(gv(['Document Type', 'Doc Type'], "Invoice/Bill of Entry"))
-                if 'credit' in dt.lower(): dt = "Credit Note"
-                elif 'debit' in dt.lower(): dt = "Debit Note"
+                # Accurate Document Type Detection
+                raw_dt = str(gv(['Document Type', 'Doc Type', 'Note Type'], ""))
+                if 'credit' in raw_dt.lower(): dt = "Credit Note"
+                elif 'debit' in raw_dt.lower(): dt = "Debit Note"
                 else: dt = "Invoice/Bill of Entry"
+                
                 ws.cell(row=r, column=2, value="Inward Supply from Registered Person")
                 ws.cell(row=r, column=3, value=str(gv(['GSTIN', 'GST No'], "")))
                 ws.cell(row=r, column=4, value=dt)
@@ -760,22 +762,30 @@ def generate_s1a_master_surgeon(b2b_df, cdnr_df, gstr1_json_list, gstin, from_pe
         with zipfile.ZipFile(TEMPLATE, 'r') as zorig:
             with zipfile.ZipFile(io.BytesIO(filled_bytes), 'r') as zfill:
                 with zipfile.ZipFile(final_buf, 'w') as zout:
-                    # Get original drawing tags from template sheet2.xml
+                    # Get original drawing and dataValidation tags from template sheet2.xml
                     orig_sheet = zorig.read("xl/worksheets/sheet2.xml").decode('utf-8')
                     draw_tags = re.findall(r'<(?:legacy)?drawing r:id="rId[^>]*/>', orig_sheet)
+                    dv_tags = re.findall(r'<dataValidations.*?</dataValidations>', orig_sheet, flags=re.DOTALL)
                     
                     for item in zfill.infolist():
                         content = zfill.read(item.filename)
                         if "xl/worksheets/sheet2.xml" in item.filename:
                             xml = content.decode('utf-8')
                             
-                            # FIX: Add missing namespace declaration if not present
+                            # FIX: Add missing namespace declaration
                             if 'xmlns:r=' not in xml:
                                 xml = xml.replace('<worksheet', '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"', 1)
                             
-                            # Insert original drawing tags before </worksheet>
+                            # Re-inject Dropdowns (Data Validations)
+                            if dv_tags:
+                                # Remove any partial/broken validations openpyxl might have added
+                                xml = re.sub(r'<dataValidations.*?</dataValidations>', '', xml, flags=re.DOTALL)
+                                xml = xml.replace('</worksheet>', dv_tags[0] + '</worksheet>')
+
+                            # Re-inject Buttons (Drawings)
                             if draw_tags:
                                 xml = xml.replace('</worksheet>', "".join(draw_tags) + '</worksheet>')
+                            
                             content = xml.encode('utf-8')
                         zout.writestr(item, content)
                     
